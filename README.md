@@ -20,52 +20,78 @@ Automated one-liner installation scripts with comprehensive testing for Total Wa
 - **Automatic backups** of existing mods
 - **CI/CD ready** with exit codes and detailed reports
 - **Detailed logging** for troubleshooting
+- **First-run Napoleon setup wizard** for the GUI with theme, backup, and overlay preset choices
+- **Curated overlay presets** such as Balanced Command, Grand Battery, and Winter Campaign
 
 ## Quick Start
 
 ### Windows
 
-**Install a mod:**
-```batch
-install-mod-windows.bat "The Great War" "C:\Downloads\The Great War 6.2"
+**Copy-paste one-liner (run from the repository root in Windows Terminal / PowerShell):**
+```powershell
+powershell -ExecutionPolicy Bypass -NoProfile -Command "& '.\scripts\install-mod-windows.bat' 'The Great War' 'C:\Users\$env:USERNAME\Downloads\The Great War 6.2'; if ($LASTEXITCODE -eq 0) { & '.\scripts\test-mod-installation.ps1' -ModName 'The Great War' }"
 ```
 
-**Run tests:**
+**Why this is the best Windows 11 one-liner:**
+- Runs the installer and verification in a single command
+- Works directly in Windows Terminal / PowerShell without opening a second shell
+- Stops before validation if installation fails, so the output stays clear
+
+**Example with a different mod name:**
 ```powershell
-.\test-mod-installation.ps1 -ModName "The Great War"
+powershell -ExecutionPolicy Bypass -NoProfile -Command "& '.\scripts\install-mod-windows.bat' 'DarthMod Napoleon' 'D:\Mods\DarthMod Napoleon'; if ($LASTEXITCODE -eq 0) { & '.\scripts\test-mod-installation.ps1' -ModName 'DarthMod Napoleon' }"
 ```
 
 ### Linux
 
-**Install a mod:**
+**Copy-paste one-liner (run from the repository root in a terminal):**
 ```bash
-./install-mod-linux.sh "The Great War" "~/Downloads/The Great War 6.2"
+chmod +x ./scripts/install-mod-linux.sh ./scripts/test-mod-installation.sh && ./scripts/install-mod-linux.sh "The Great War" "$HOME/Downloads/The Great War 6.2" && ./scripts/test-mod-installation.sh -m "The Great War"
 ```
 
-**Run tests:**
+**Why this is the best Linux one-liner:**
+- Makes the scripts executable only when needed
+- Installs and validates the mod in one terminal command
+- Uses `&&` so each step only runs when the previous step succeeds
+
+**Example with a different mod folder:**
 ```bash
-./test-mod-installation.sh -m "The Great War"
+chmod +x ./scripts/install-mod-linux.sh ./scripts/test-mod-installation.sh && ./scripts/install-mod-linux.sh "Field Command" "$HOME/Downloads/Field Command" && ./scripts/test-mod-installation.sh -m "Field Command"
 ```
+
+> These one-liners assume the mod has already been downloaded and extracted locally. The scripts then perform the full install plus post-install validation.
 
 ## Installation
 
 ### Windows
 
-1. Copy `install-mod-windows.bat` to a convenient location
+1. Open Windows Terminal in the repository root
 2. Download your mod files
-3. Run the installation script with mod name and source path
-4. Run the test suite to verify installation
+3. Run `scripts\install-mod-windows.bat` with mod name and source path
+4. Run `.\scripts\test-mod-installation.ps1` to verify installation
 
 ### Linux
 
 1. Make scripts executable:
    ```bash
-   chmod +x install-mod-linux.sh test-mod-installation.sh
+   chmod +x scripts/install-mod-linux.sh scripts/test-mod-installation.sh
    ```
-2. Copy scripts to a convenient location
+2. Open a terminal in the repository root
 3. Download your mod files
-4. Run the installation script with mod name and source path
-5. Run the test suite to verify installation
+4. Run `./scripts/install-mod-linux.sh` with mod name and source path
+5. Run `./scripts/test-mod-installation.sh` to verify installation
+
+## First Launch Experience
+
+When you start the GUI for the first time, the new **Napoleon Deployment Wizard** now:
+
+1. Introduces the cheat engine in a Napoleon-themed briefing
+2. Lets you choose an **Imperial theme**
+3. Lets you choose an **overlay preset** that maps to a battle-style animation
+4. Lets you enable or disable automatic backups
+5. Lets you optionally point the engine at your Napoleon Total War folder and backup folder
+
+The selected overlay preset is also available later from the control panel settings page.
 
 ## Usage
 
@@ -73,7 +99,7 @@ install-mod-windows.bat "The Great War" "C:\Downloads\The Great War 6.2"
 
 **Syntax:**
 ```batch
-install-mod-windows.bat "ModName" "SourcePath"
+scripts\install-mod-windows.bat "ModName" "SourcePath"
 ```
 
 **Parameters:**
@@ -82,7 +108,7 @@ install-mod-windows.bat "ModName" "SourcePath"
 
 **Example:**
 ```batch
-install-mod-windows.bat "The Great War" "C:\Downloads\The Great War 6.2"
+scripts\install-mod-windows.bat "The Great War" "C:\Downloads\The Great War 6.2"
 ```
 
 **What it does:**
@@ -97,7 +123,7 @@ install-mod-windows.bat "The Great War" "C:\Downloads\The Great War 6.2"
 
 **Syntax:**
 ```powershell
-.\test-mod-installation.ps1 -ModName "ModName" [-GameRoot "Path"] [-Verbose] [-CI]
+.\scripts\test-mod-installation.ps1 -ModName "ModName" [-GameRoot "Path"] [-Verbose] [-CI]
 ```
 
 **Parameters:**
@@ -109,13 +135,13 @@ install-mod-windows.bat "The Great War" "C:\Downloads\The Great War 6.2"
 **Examples:**
 ```powershell
 # Basic test
-.\test-mod-installation.ps1 -ModName "The Great War"
+.\scripts\test-mod-installation.ps1 -ModName "The Great War"
 
 # With verbose output
-.\test-mod-installation.ps1 -ModName "The Great War" -Verbose
+.\scripts\test-mod-installation.ps1 -ModName "The Great War" -Verbose
 
 # CI/CD mode
-.\test-mod-installation.ps1 -ModName "The Great War" -CI
+.\scripts\test-mod-installation.ps1 -ModName "The Great War" -CI
 ```
 
 **Tests performed:**
@@ -134,7 +160,7 @@ install-mod-windows.bat "The Great War" "C:\Downloads\The Great War 6.2"
 
 **Syntax:**
 ```bash
-./install-mod-linux.sh "ModName" "SourcePath"
+./scripts/install-mod-linux.sh "ModName" "SourcePath"
 ```
 
 **Parameters:**
@@ -143,7 +169,7 @@ install-mod-windows.bat "The Great War" "C:\Downloads\The Great War 6.2"
 
 **Example:**
 ```bash
-./install-mod-linux.sh "The Great War" "~/Downloads/The Great War 6.2"
+./scripts/install-mod-linux.sh "The Great War" "$HOME/Downloads/The Great War 6.2"
 ```
 
 **What it does:**
@@ -159,7 +185,7 @@ install-mod-windows.bat "The Great War" "C:\Downloads\The Great War 6.2"
 
 **Syntax:**
 ```bash
-./test-mod-installation.sh -m "ModName" [-g "GameRoot"] [-v] [--ci]
+./scripts/test-mod-installation.sh -m "ModName" [-g "GameRoot"] [-v] [--ci]
 ```
 
 **Parameters:**
@@ -172,16 +198,16 @@ install-mod-windows.bat "The Great War" "C:\Downloads\The Great War 6.2"
 **Examples:**
 ```bash
 # Basic test
-./test-mod-installation.sh -m "The Great War"
+./scripts/test-mod-installation.sh -m "The Great War"
 
 # With verbose output
-./test-mod-installation.sh -m "The Great War" -v
+./scripts/test-mod-installation.sh -m "The Great War" -v
 
 # CI/CD mode
-./test-mod-installation.sh -m "The Great War" --ci
+./scripts/test-mod-installation.sh -m "The Great War" --ci
 
 # Custom game path
-./test-mod-installation.sh -m "The Great War" -g "$HOME/.steam/steam/steamapps/common/Napoleon Total War"
+./scripts/test-mod-installation.sh -m "The Great War" -g "$HOME/.steam/steam/steamapps/common/Napoleon Total War"
 ```
 
 ## Detected Installation Paths
@@ -263,7 +289,7 @@ Both test suites support CI/CD mode:
 
 **Windows:**
 ```powershell
-.\test-mod-installation.ps1 -ModName "MyMod" -CI
+.\scripts\test-mod-installation.ps1 -ModName "MyMod" -CI
 ```
 
 **Linux:**
@@ -370,10 +396,10 @@ If auto-detection fails, specify the game path manually:
 **Windows:**
 ```batch
 # Install
-install-mod-windows.bat "ModName" "SourcePath"
+scripts\install-mod-windows.bat "ModName" "SourcePath"
 
 # Test with custom path
-.\test-mod-installation.ps1 -ModName "ModName" -GameRoot "D:\Games\Napoleon Total War"
+.\scripts\test-mod-installation.ps1 -ModName "ModName" -GameRoot "D:\Games\Napoleon Total War"
 ```
 
 **Linux:**

@@ -48,6 +48,8 @@ class Config:
     ui_theme: str = "dark"
     auto_backup: bool = True
     debug_mode: bool = False
+    setup_completed: bool = False
+    overlay_preset: str = "balanced_command"
     overlay_animation: str = "smoke_screen"
     
     def to_dict(self) -> Dict[str, Any]:
@@ -77,7 +79,13 @@ class Config:
         
         if 'debug_mode' in data:
             config.debug_mode = data['debug_mode']
-        
+
+        if 'setup_completed' in data:
+            config.setup_completed = data['setup_completed']
+
+        if 'overlay_preset' in data:
+            config.overlay_preset = data['overlay_preset']
+
         if 'overlay_animation' in data:
             config.overlay_animation = data['overlay_animation']
         
@@ -127,6 +135,8 @@ class ConfigManager:
         'ui_theme': {'type': str, 'required': False},
         'auto_backup': {'type': bool, 'required': False},
         'debug_mode': {'type': bool, 'required': False},
+        'setup_completed': {'type': bool, 'required': False},
+        'overlay_preset': {'type': str, 'required': False},
         'overlay_animation': {'type': str, 'required': False},
     }
 

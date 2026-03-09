@@ -5,28 +5,20 @@
 ### Windows
 
 1. **Download a mod** (e.g., "The Great War 6.2")
-2. **Run installer:**
-   ```batch
-   install-mod-windows.bat "The Great War" "C:\Downloads\The Great War 6.2"
-   ```
-3. **Verify installation:**
+2. **Run installer + validation in one line from the repo root:**
    ```powershell
-   .\test-mod-installation.ps1 -ModName "The Great War"
+   powershell -ExecutionPolicy Bypass -NoProfile -Command "& '.\scripts\install-mod-windows.bat' 'The Great War' 'C:\Users\$env:USERNAME\Downloads\The Great War 6.2'; if ($LASTEXITCODE -eq 0) { & '.\scripts\test-mod-installation.ps1' -ModName 'The Great War' }"
    ```
-4. **Play!** Launch the mod from the game launcher
+3. **Play!** Launch the mod from the game launcher
 
 ### Linux
 
 1. **Download a mod** (e.g., "The Great War 6.2")
-2. **Run installer:**
+2. **Run installer + validation in one line from the repo root:**
    ```bash
-   ./install-mod-linux.sh "The Great War" "~/Downloads/The Great War 6.2"
+   chmod +x ./scripts/install-mod-linux.sh ./scripts/test-mod-installation.sh && ./scripts/install-mod-linux.sh "The Great War" "$HOME/Downloads/The Great War 6.2" && ./scripts/test-mod-installation.sh -m "The Great War"
    ```
-3. **Verify installation:**
-   ```bash
-   ./test-mod-installation.sh -m "The Great War"
-   ```
-4. **Play!** Launch the mod with `wine` or through Steam
+3. **Play!** Launch the mod with `wine` or through Steam
 
 ---
 
@@ -36,8 +28,8 @@
 
 | Script | Platform | Purpose |
 |--------|----------|---------|
-| `install-mod-windows.bat` | Windows | One-liner mod installer |
-| `install-mod-linux.sh` | Linux | One-liner mod installer |
+| `scripts/install-mod-windows.bat` | Windows | One-liner mod installer |
+| `scripts/install-mod-linux.sh` | Linux | One-liner mod installer |
 
 **Both scripts:**
 - Auto-detect game installation
@@ -50,8 +42,8 @@
 
 | Script | Platform | Purpose |
 |--------|----------|---------|
-| `test-mod-installation.ps1` | Windows | Comprehensive test suite (10 tests) |
-| `test-mod-installation.sh` | Linux | Comprehensive test suite (10 tests) |
+| `scripts/test-mod-installation.ps1` | Windows | Comprehensive test suite (10 tests) |
+| `scripts/test-mod-installation.sh` | Linux | Comprehensive test suite (10 tests) |
 
 **Both scripts:**
 - Validate mod installation
@@ -68,35 +60,35 @@
 
 ```batch
 REM Install a mod
-install-mod-windows.bat "ModName" "C:\Path\To\Mod"
+scripts\install-mod-windows.bat "ModName" "C:\Path\To\Mod"
 
 REM Test a mod
-.\test-mod-installation.ps1 -ModName "ModName"
+.\scripts\test-mod-installation.ps1 -ModName "ModName"
 
 REM Test with verbose output
-.\test-mod-installation.ps1 -ModName "ModName" -Verbose
+.\scripts\test-mod-installation.ps1 -ModName "ModName" -Verbose
 
 REM Test for CI/CD
-.\test-mod-installation.ps1 -ModName "ModName" -CI
+.\scripts\test-mod-installation.ps1 -ModName "ModName" -CI
 ```
 
 ### Linux
 
 ```bash
 # Install a mod
-./install-mod-linux.sh "ModName" "~/Path/To/Mod"
+./scripts/install-mod-linux.sh "ModName" "$HOME/Path/To/Mod"
 
 # Test a mod
-./test-mod-installation.sh -m "ModName"
+./scripts/test-mod-installation.sh -m "ModName"
 
 # Test with verbose output
-./test-mod-installation.sh -m "ModName" -v
+./scripts/test-mod-installation.sh -m "ModName" -v
 
 # Test for CI/CD
-./test-mod-installation.sh -m "ModName" --ci
+./scripts/test-mod-installation.sh -m "ModName" --ci
 
 # Get help
-./test-mod-installation.sh -h
+./scripts/test-mod-installation.sh -h
 ```
 
 ---
@@ -197,10 +189,10 @@ REM Step 1: Download the mod (manually or with wget/curl)
 REM Assume downloaded to: C:\Downloads\The Great War 6.2
 
 REM Step 2: Install
-install-mod-windows.bat "The Great War" "C:\Downloads\The Great War 6.2"
+scripts\install-mod-windows.bat "The Great War" "C:\Downloads\The Great War 6.2"
 
 REM Step 3: Verify
-.\test-mod-installation.ps1 -ModName "The Great War"
+.\scripts\test-mod-installation.ps1 -ModName "The Great War"
 
 REM Step 4: Launch
 REM Run the launcher or enable mod in game launcher
@@ -213,10 +205,10 @@ REM Run the launcher or enable mod in game launcher
 # Assume downloaded to: ~/Downloads/The Great War 6.2
 
 # Step 2: Install
-./install-mod-linux.sh "The Great War" "~/Downloads/The Great War 6.2"
+./scripts/install-mod-linux.sh "The Great War" "$HOME/Downloads/The Great War 6.2"
 
 # Step 3: Verify
-./test-mod-installation.sh -m "The Great War"
+./scripts/test-mod-installation.sh -m "The Great War"
 
 # Step 4: Launch
 # wine "~/.local/share/Steam/steamapps/common/Napoleon Total War/data/The Great War/launcher.exe"
@@ -246,24 +238,24 @@ Install and test one at a time:
 
 ```bash
 # Install mod 1
-./install-mod-linux.sh "Mod1" "Source1"
-./test-mod-installation.sh -m "Mod1"
+./scripts/install-mod-linux.sh "Mod1" "Source1"
+./scripts/test-mod-installation.sh -m "Mod1"
 
 # Install mod 2
-./install-mod-linux.sh "Mod2" "Source2"
-./test-mod-installation.sh -m "Mod2"
+./scripts/install-mod-linux.sh "Mod2" "Source2"
+./scripts/test-mod-installation.sh -m "Mod2"
 ```
 
 ### Custom Game Path
 
 **Windows:**
 ```powershell
-.\test-mod-installation.ps1 -ModName "Mod" -GameRoot "D:\Games\Napoleon Total War"
+.\scripts\test-mod-installation.ps1 -ModName "Mod" -GameRoot "D:\Games\Napoleon Total War"
 ```
 
 **Linux:**
 ```bash
-./test-mod-installation.sh -m "Mod" -g "/custom/path"
+./scripts/test-mod-installation.sh -m "Mod" -g "/custom/path"
 ```
 
 ---

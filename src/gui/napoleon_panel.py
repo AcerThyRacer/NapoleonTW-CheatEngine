@@ -30,6 +30,15 @@ except ImportError:
     PYQT_AVAILABLE = False
     print("PyQt6 required for GUI")
 
+from src.config import ConfigManager
+from src.gui.setup_wizard import (
+    normalize_panel_theme,
+    panel_theme_name_for_value,
+    panel_theme_options,
+    run_first_run_setup,
+)
+from src.trainer.overlay import OverlayAnimationStyle
+
 
 class CheatCategory(Enum):
     """Categories of cheats for organization."""
@@ -238,12 +247,16 @@ class NapoleonControlPanel(QMainWindow):
     Fully customizable with animations and all commands.
     """
     
-    def __init__(self):
+    def __init__(self, config_manager: Optional[ConfigManager] = None):
         super().__init__()
-        
+
+        self.config_manager = config_manager
         self.cheat_states: Dict[str, bool] = {}
-        self.current_theme = "napoleon_gold"
-        
+        configured_theme = None
+        if self.config_manager is not None:
+            configured_theme = self.config_manager.config.ui_theme
+        self.current_theme = normalize_panel_theme(configured_theme)
+
         self._init_commands()
         self._init_ui()
         self._apply_theme()
@@ -547,18 +560,37 @@ class NapoleonControlPanel(QMainWindow):
         theme_layout = QFormLayout()
         
         self.theme_combo = QComboBox()
-        self.theme_combo.addItems([
-            "Napoleon Gold",
-            "Imperial Blue",
-            "Royal Purple",
-            "Battlefield Steel",
-            "Midnight Command"
-        ])
+        self.theme_combo.addItems(list(panel_theme_options().values()))
+        self.theme_combo.setCurrentText(panel_theme_name_for_value(self.current_theme))
         self.theme_combo.currentTextChanged.connect(self._on_theme_changed)
         theme_layout.addRow("Theme:", self.theme_combo)
         
         theme_group.setLayout(theme_layout)
         layout.addWidget(theme_group)
+
+        preset_group = QGroupBox("🎬 Overlay Presets")
+        preset_layout = QFormLayout()
+
+        self.overlay_preset_combo = QComboBox()
+        preset_definitions = OverlayAnimationStyle.preset_definitions()
+        for preset_name, preset in preset_definitions.items():
+            self.overlay_preset_combo.addItem(preset["name"], preset_name)
+
+        current_preset = "balanced_command"
+        if self.config_manager is not None:
+            current_preset = self.config_manager.config.overlay_preset or current_preset
+        preset_index = self.overlay_preset_combo.findData(current_preset)
+        if preset_index >= 0:
+            self.overlay_preset_combo.setCurrentIndex(preset_index)
+        self.overlay_preset_combo.currentIndexChanged.connect(self._on_overlay_preset_changed)
+        preset_layout.addRow("Preset:", self.overlay_preset_combo)
+
+        self.overlay_preset_summary = QLabel()
+        self.overlay_preset_summary.setWordWrap(True)
+        preset_layout.addRow("Field notes:", self.overlay_preset_summary)
+
+        preset_group.setLayout(preset_layout)
+        layout.addWidget(preset_group)
         
         # Animation settings
         anim_group = QGroupBox("⚡ Animation Settings")
@@ -592,7 +624,7 @@ class NapoleonControlPanel(QMainWindow):
         layout.addWidget(quick_group)
         
         layout.addStretch()
-        
+        self._update_overlay_preset_summary()
         return page
     
     def _switch_category(self, category: Optional[CheatCategory]):
@@ -629,9 +661,37 @@ class NapoleonControlPanel(QMainWindow):
     
     def _on_theme_changed(self, theme_name: str):
         """Handle theme change."""
-        self.current_theme = theme_name.lower().replace(" ", "_")
+        reverse_themes = {label: value for value, label in panel_theme_options().items()}
+        self.current_theme = reverse_themes.get(theme_name, "napoleon_gold")
         self._apply_theme()
+        if self.config_manager is not None:
+            self.config_manager.config.ui_theme = self.current_theme
+            self.config_manager.save()
         self.statusBar().showMessage(f"Theme changed to {theme_name}", 2000)
+
+    def _on_overlay_preset_changed(self, index: int):
+        """Handle overlay preset changes."""
+        if index < 0:
+            return
+        self._update_overlay_preset_summary()
+        preset_name = self.overlay_preset_combo.itemData(index)
+        preset = OverlayAnimationStyle.resolve_preset(preset_name)
+        if self.config_manager is not None:
+            self.config_manager.config.overlay_preset = preset_name
+            self.config_manager.config.overlay_animation = preset["animation"]
+            self.config_manager.save()
+        self.statusBar().showMessage(f"Overlay preset ready: {preset['name']}", 2000)
+
+    def _update_overlay_preset_summary(self):
+        """Refresh the overlay preset summary label."""
+        if not hasattr(self, "overlay_preset_combo"):
+            return
+        preset_name = self.overlay_preset_combo.currentData()
+        preset = OverlayAnimationStyle.resolve_preset(preset_name)
+        animation_name = OverlayAnimationStyle.display_names()[preset["animation"]]
+        self.overlay_preset_summary.setText(
+            f"{preset['description']} Uses {animation_name} for the overlay."
+        )
     
     def _apply_theme(self):
         """Apply current theme."""
@@ -718,8 +778,13 @@ def main():
     palette.setColor(QPalette.ColorRole.Highlight, QColor(212, 175, 55))
     palette.setColor(QPalette.ColorRole.HighlightedText, QColor(26, 37, 47))
     app.setPalette(palette)
-    
-    window = NapoleonControlPanel()
+
+    config_manager = ConfigManager()
+    config_manager.load()
+    if not run_first_run_setup(app, config_manager):
+        return
+
+    window = NapoleonControlPanel(config_manager=config_manager)
     window.show()
     
     sys.exit(app.exec())
