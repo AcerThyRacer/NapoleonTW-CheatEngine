@@ -134,7 +134,7 @@ class AnimatedButton(QPushButton):
 
 
 class CheatToggleButton(QWidget):
-    """Custom toggle button for a cheat with visual feedback."""
+    """Custom toggle button for a cheat with visual feedback and live value display."""
     
     toggled = pyqtSignal(str, bool)  # cheat_id, state
     
@@ -142,6 +142,7 @@ class CheatToggleButton(QWidget):
         super().__init__(parent)
         self.command = command
         self.is_active = False
+        self._current_status = 'ok'
         
         self._init_ui()
     
@@ -150,6 +151,14 @@ class CheatToggleButton(QWidget):
         layout = QHBoxLayout()
         layout.setSpacing(10)
         layout.setContentsMargins(10, 10, 10, 10)
+        
+        # Status indicator dot
+        self.status_indicator = QLabel("●")
+        self.status_indicator.setFont(QFont("Segoe UI", 12))
+        self.status_indicator.setFixedSize(20, 20)
+        self.status_indicator.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.status_indicator.setStyleSheet("color: #95a5a6;")  # grey = idle
+        layout.addWidget(self.status_indicator)
         
         # Icon/Emoji label
         self.icon_label = QLabel(self.command.icon)
@@ -176,6 +185,14 @@ class CheatToggleButton(QWidget):
         
         layout.addLayout(text_layout)
         
+        # Live value label
+        self.live_value_label = QLabel("")
+        self.live_value_label.setFont(QFont("Georgia", 12, QFont.Weight.Bold))
+        self.live_value_label.setStyleSheet("color: #f1c40f;")
+        self.live_value_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.live_value_label.setMinimumWidth(90)
+        layout.addWidget(self.live_value_label)
+        
         # Toggle switch
         self.toggle_btn = QPushButton("OFF")
         self.toggle_btn.setCheckable(True)
@@ -199,6 +216,34 @@ class CheatToggleButton(QWidget):
             }
         """)
     
+    # ---- live-value / status API (called from NapoleonControlPanel) ----
+
+    def set_live_value(self, value) -> None:
+        """Display the live memory value next to the toggle."""
+        if isinstance(value, float):
+            self.live_value_label.setText(f"{value:.1f}")
+        elif isinstance(value, int):
+            self.live_value_label.setText(f"{value:,}")
+        else:
+            self.live_value_label.setText(str(value))
+
+    def set_status(self, status: str) -> None:
+        """
+        Update the status indicator dot.
+
+        Args:
+            status: One of ``'ok'``, ``'modified'``, ``'broken'``.
+        """
+        self._current_status = status
+        colours = {
+            'ok': '#95a5a6',       # grey — no cheat active / idle
+            'modified': '#2ecc71', # green — cheat value applied
+            'broken': '#e74c3c',   # red — game overwrote our cheat
+        }
+        self.status_indicator.setStyleSheet(
+            f"color: {colours.get(status, '#95a5a6')};"
+        )
+
     def _on_toggle(self, checked: bool):
         """Handle toggle."""
         self.is_active = checked
@@ -394,9 +439,9 @@ class NapoleonControlPanel(QMainWindow):
         self._create_status_bar()
     
     def _create_header(self) -> QWidget:
-        """Create Napoleon-themed header."""
+        """Create Napoleon-themed header with live stat displays."""
         header = QFrame()
-        header.setFixedHeight(120)
+        header.setFixedHeight(140)
         header.setStyleSheet("""
             QFrame {
                 background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
@@ -413,22 +458,45 @@ class NapoleonControlPanel(QMainWindow):
         eagle_label.setFont(QFont("Segoe UI Emoji", 48))
         layout.addWidget(eagle_label)
         
-        # Title
-        title_layout = QVBoxLayout()
+        # Centre column: title + live stats bar
+        centre = QVBoxLayout()
         
         title = QLabel("NAPOLEON'S COMMAND PANEL")
         title.setFont(QFont("Georgia", 28, QFont.Weight.Bold))
         title.setStyleSheet("color: #d4af37;")
         title.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        title_layout.addWidget(title)
+        centre.addWidget(title)
         
         subtitle = QLabel("Total War Control System")
         subtitle.setFont(QFont("Georgia", 14))
         subtitle.setStyleSheet("color: #95a5a6;")
         subtitle.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        title_layout.addWidget(subtitle)
+        centre.addWidget(subtitle)
         
-        layout.addLayout(title_layout)
+        # ── Live stats row ────────────────────────────────────────
+        stats_row = QHBoxLayout()
+        stats_row.setSpacing(20)
+
+        self.gold_label = QLabel("💰 --- Gold")
+        self.gold_label.setFont(QFont("Georgia", 16, QFont.Weight.Bold))
+        self.gold_label.setStyleSheet("color: #f1c40f;")
+        self.gold_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        stats_row.addWidget(self.gold_label)
+
+        self.army_label = QLabel("⚔️ --- Armies Active")
+        self.army_label.setFont(QFont("Georgia", 16, QFont.Weight.Bold))
+        self.army_label.setStyleSheet("color: #3498db;")
+        self.army_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        stats_row.addWidget(self.army_label)
+
+        self.morale_label = QLabel("🎖️ --- Morale")
+        self.morale_label.setFont(QFont("Georgia", 16, QFont.Weight.Bold))
+        self.morale_label.setStyleSheet("color: #2ecc71;")
+        self.morale_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        stats_row.addWidget(self.morale_label)
+
+        centre.addLayout(stats_row)
+        layout.addLayout(centre)
         
         # Crown icon
         crown_label = QLabel("👑")
@@ -436,6 +504,74 @@ class NapoleonControlPanel(QMainWindow):
         layout.addWidget(crown_label)
         
         return header
+
+    # ------------------------------------------------------------------
+    # Live-stat update slots (called by MemoryMonitor signals)
+    # ------------------------------------------------------------------
+
+    def update_gold(self, value) -> None:
+        """Update the live gold counter in the header."""
+        self.gold_label.setText(f"💰 {value:,} Gold" if isinstance(value, (int, float)) else f"💰 {value} Gold")
+
+    def update_army_count(self, count) -> None:
+        """Update the live army counter in the header."""
+        self.army_label.setText(f"⚔️ {count} Armies Active")
+
+    def update_morale(self, value) -> None:
+        """Update the live morale display in the header."""
+        self.morale_label.setText(f"🎖️ {value} Morale")
+
+    def on_live_value_changed(self, cheat_id: str, new_value) -> None:
+        """
+        Slot that receives ``MemoryMonitor.value_changed`` signals and
+        dispatches updates to the relevant header widget or cheat toggle.
+        """
+        if cheat_id == 'infinite_gold':
+            self.update_gold(new_value)
+        elif cheat_id == 'army_count':
+            self.update_army_count(new_value)
+        elif cheat_id == 'high_morale':
+            self.update_morale(new_value)
+
+        # Forward to cheat toggle status labels
+        self._update_cheat_live_value(cheat_id, new_value)
+
+    def on_cheat_status_changed(self, cheat_id: str, status: str) -> None:
+        """
+        Slot that receives ``MemoryMonitor.status_changed`` signals and
+        updates the cheat toggle's visual indicator.
+        """
+        self._update_cheat_status_indicator(cheat_id, status)
+
+    def _update_cheat_live_value(self, cheat_id: str, value) -> None:
+        """Push a live value to the matching CheatToggleButton (if present)."""
+        for category in CheatCategory:
+            page = self.category_pages.get(category)
+            if page is None:
+                continue
+            layout = page.layout()
+            if layout is None:
+                continue
+            for i in range(layout.count()):
+                widget = layout.itemAt(i).widget()
+                if isinstance(widget, CheatToggleButton) and widget.command.id == cheat_id:
+                    widget.set_live_value(value)
+                    return
+
+    def _update_cheat_status_indicator(self, cheat_id: str, status: str) -> None:
+        """Push a status indicator to the matching CheatToggleButton."""
+        for category in CheatCategory:
+            page = self.category_pages.get(category)
+            if page is None:
+                continue
+            layout = page.layout()
+            if layout is None:
+                continue
+            for i in range(layout.count()):
+                widget = layout.itemAt(i).widget()
+                if isinstance(widget, CheatToggleButton) and widget.command.id == cheat_id:
+                    widget.set_status(status)
+                    return
     
     def _create_category_tabs(self) -> QStackedWidget:
         """Create category navigation tabs."""

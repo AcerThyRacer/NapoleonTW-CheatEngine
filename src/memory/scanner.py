@@ -755,3 +755,93 @@ class MemoryScanner:
             
         except Exception:
             return []
+
+    # ------------------------------------------------------------------
+    # Pointer chain scanning
+    # ------------------------------------------------------------------
+
+    def scan_pointers(self, base_address: int, offsets: List[int]) -> Optional[int]:
+        """
+        Follow a pointer chain starting from *base_address*.
+
+        At each level the method reads an 8-byte (64-bit) or 4-byte
+        (32-bit) pointer, adds the next offset, and dereferences again
+        until the chain is exhausted.
+
+        Args:
+            base_address: Starting memory address.
+            offsets:      List of offsets to apply at each dereference level.
+
+        Returns:
+            The final resolved address, or ``None`` if any read fails.
+        """
+        if not self.is_attached() or not self.backend:
+            return None
+
+        address = base_address
+        for offset in offsets:
+            try:
+                data = self.backend.read_bytes(address, 8)
+                if not data or len(data) < 4:
+                    logger.warning("Pointer read failed at 0x%08X", address)
+                    return None
+
+                # Try 64-bit first, fall back to 32-bit
+                if len(data) >= 8:
+                    ptr = struct.unpack('<Q', data[:8])[0]
+                    if ptr > 0x7FFFFFFFFFFF:
+                        ptr = struct.unpack('<I', data[:4])[0]
+                else:
+                    ptr = struct.unpack('<I', data[:4])[0]
+
+                if ptr == 0:
+                    logger.warning("Null pointer at 0x%08X", address)
+                    return None
+
+                address = ptr + offset
+            except Exception as exc:
+                logger.error("scan_pointers failed at 0x%08X: %s", address, exc)
+                return None
+
+        return address
+
+    # ------------------------------------------------------------------
+    # AOB (Array of Bytes) convenience scanner
+    # ------------------------------------------------------------------
+
+    def scan_aob(self, signature: str, max_results: int = 100,
+                 timeout: float = 30.0) -> List[int]:
+        """
+        Scan memory for an AOB (Array of Bytes) pattern string.
+
+        The pattern uses hex bytes separated by spaces.  Use ``??``
+        as a wildcard for any single byte.
+
+        Example::
+
+            addresses = scanner.scan_aob("89 5D ?? ?? 8B 45")
+
+        Args:
+            signature:   Pattern string, e.g. ``"89 5D ?? ?? 8B 45"``.
+            max_results: Maximum number of matches to return.
+            timeout:     Scan timeout in seconds.
+
+        Returns:
+            List of matching memory addresses.
+        """
+        if not self.is_attached() or not self.backend:
+            return []
+
+        from .advanced import AOBPattern, AOBScanner
+
+        pattern = AOBPattern(
+            name='scan_aob_query',
+            pattern=signature,
+            description='User AOB scan',
+        )
+        aob = AOBScanner(editor=self.backend)
+        return aob.scan(
+            pattern,
+            max_results=max_results,
+            timeout=timeout,
+        )
