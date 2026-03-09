@@ -154,6 +154,14 @@ class TestOverlayAnimationStyle:
         for name in expected:
             assert name in values, f"Expected style '{name}' not found"
 
+    def test_overlay_presets_resolve_to_valid_animations(self):
+        from src.trainer.overlay import OverlayAnimationStyle
+        presets = OverlayAnimationStyle.preset_definitions()
+        names = OverlayAnimationStyle.display_names()
+        assert "balanced_command" in presets
+        for preset in presets.values():
+            assert preset["animation"] in names
+
 
 class TestOverlayAnimationManager:
     """Tests for OverlayAnimationManager."""
@@ -254,6 +262,14 @@ class TestCheatOverlayAnimationIntegration:
         assert "none" in anims
         assert "imperial_march" in anims
 
+    def test_get_available_presets(self):
+        from src.trainer.overlay import CheatOverlay
+        overlay = CheatOverlay()
+        presets = overlay.get_available_presets()
+        assert isinstance(presets, dict)
+        assert "balanced_command" in presets
+        assert "winter_campaign" in presets
+
     @patch('src.trainer.overlay.PYQT_AVAILABLE', False)
     def test_create_overlay_no_pyqt(self):
         from src.trainer.overlay import CheatOverlay
@@ -299,9 +315,15 @@ class TestOverlayAnimationConfig:
 
     def test_config_from_dict_with_overlay_animation(self):
         from src.config.settings import Config
-        data = {"overlay_animation": "cavalry_charge"}
+        data = {
+            "overlay_animation": "cavalry_charge",
+            "overlay_preset": "shock_assault",
+            "setup_completed": True,
+        }
         config = Config.from_dict(data)
         assert config.overlay_animation == "cavalry_charge"
+        assert config.overlay_preset == "shock_assault"
+        assert config.setup_completed is True
 
     def test_config_from_dict_without_overlay_animation(self):
         from src.config.settings import Config

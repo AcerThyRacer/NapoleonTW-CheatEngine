@@ -26,6 +26,8 @@ class TestConfig:
         assert config.scan_settings.default_type == "INT_32"
         assert config.scan_settings.parallel_workers == 4
         assert config.auto_backup is True
+        assert config.setup_completed is False
+        assert config.overlay_preset == "balanced_command"
 
     def test_config_manager_singleton(self):
         from src.config import ConfigManager
@@ -56,3 +58,5 @@ class TestConfig:
         assert 'scan_settings' in d
         assert 'ui_theme' in d
         assert 'auto_backup' in d
+        assert 'setup_completed' in d
+        assert 'overlay_preset' in d

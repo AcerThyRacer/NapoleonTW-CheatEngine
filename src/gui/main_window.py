@@ -23,6 +23,8 @@ from .memory_tab import MemoryScannerTab
 from .file_editor_tab import FileEditorTab
 from .trainer_tab import TrainerTab
 from .settings_tab import SettingsTab
+from src.config import ConfigManager
+from .setup_wizard import run_first_run_setup
 
 
 class MainWindow(QMainWindow):
@@ -253,6 +255,11 @@ def main():
     app = QApplication(sys.argv)
     app.setApplicationName("Napoleon Total War Cheat Engine")
     app.setOrganizationName("NTWCheat")
+
+    config_manager = ConfigManager()
+    config_manager.load()
+    if not run_first_run_setup(app, config_manager):
+        return
     
     # Set dark palette
     from PyQt6.QtGui import QPalette, QColor

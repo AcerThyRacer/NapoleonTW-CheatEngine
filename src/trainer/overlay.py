@@ -61,6 +61,43 @@ class OverlayAnimationStyle(Enum):
         }
 
     @classmethod
+    def preset_definitions(cls) -> Dict[str, Dict[str, str]]:
+        """Return curated overlay presets backed by animation styles."""
+        return {
+            "balanced_command": {
+                "name": "Balanced Command",
+                "animation": cls.SMOKE_SCREEN.value,
+                "description": "A readable default with quick fades that stays out of your way.",
+            },
+            "shock_assault": {
+                "name": "Shock Assault",
+                "animation": cls.CAVALRY_CHARGE.value,
+                "description": "Fast-moving notifications for aggressive battle pacing.",
+            },
+            "grand_battery": {
+                "name": "Grand Battery",
+                "animation": cls.ARTILLERY_BARRAGE.value,
+                "description": "Loud battlefield feedback inspired by massed cannon fire.",
+            },
+            "old_guard": {
+                "name": "Old Guard",
+                "animation": cls.OLD_GUARD.value,
+                "description": "A slower, more stately overlay fit for Napoleon's elite.",
+            },
+            "winter_campaign": {
+                "name": "Winter Campaign",
+                "animation": cls.RUSSIAN_WINTER.value,
+                "description": "Cold, drifting notifications with a dramatic campaign feel.",
+            },
+        }
+
+    @classmethod
+    def resolve_preset(cls, preset_name: Optional[str]) -> Dict[str, str]:
+        """Resolve an overlay preset by name, defaulting to Balanced Command."""
+        presets = cls.preset_definitions()
+        return presets.get(preset_name or "", presets["balanced_command"])
+
+    @classmethod
     def from_value(cls, value: str) -> 'OverlayAnimationStyle':
         """Get enum member from string value, defaulting to NONE."""
         for member in cls:
@@ -749,6 +786,13 @@ class CheatOverlay:
             Dict mapping style value strings to display name strings
         """
         return OverlayAnimationStyle.display_names()
+
+    def get_available_presets(self) -> Dict[str, str]:
+        """Get curated overlay presets with display labels."""
+        return {
+            preset_name: preset["name"]
+            for preset_name, preset in OverlayAnimationStyle.preset_definitions().items()
+        }
 
 
 class SimpleOverlay:
