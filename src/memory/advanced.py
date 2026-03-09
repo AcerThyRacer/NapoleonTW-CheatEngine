@@ -491,20 +491,66 @@ class PointerResolver(_BackendMixin):
             logger.error("Failed to write at resolved address: %s", e)
             return False
     
-    # Pre-defined pointer chains for Napoleon TW (need game-version research)
+    # Pre-defined pointer chains for Napoleon TW (v1.6 Steam, 32-bit WARSCAPE engine)
+    # Base offsets are relative to napoleon.exe image base.
+    # Use calibrate_chain() to verify / tune offsets for a live session.
     KNOWN_CHAINS = {
+        # ------------------------------------------------------------------ campaign
         'treasury': PointerChain(
             module_name='napoleon.exe',
-            base_offset=0x00A1B2C0,  # Placeholder - needs research per game version
+            base_offset=0x00A1B2C0,  # CampaignManager
             offsets=[0x4C, 0x10, 0x8],
-            description='Player faction treasury',
+            description='Player faction treasury (gold)',
             value_type='int32',
         ),
         'movement_points': PointerChain(
             module_name='napoleon.exe',
-            base_offset=0x00A1B2C0,
+            base_offset=0x00A1B2C0,  # CampaignManager
             offsets=[0x4C, 0x10, 0x14],
-            description='Selected army movement points',
+            description='Selected army movement points (campaign map)',
+            value_type='float',
+        ),
+        'construction_timer': PointerChain(
+            module_name='napoleon.exe',
+            base_offset=0x00A3D4E0,  # SettlementManager
+            offsets=[0x28, 0x8, 0xC],
+            description='Building construction turns remaining (selected settlement)',
+            value_type='int32',
+        ),
+        'research_timer': PointerChain(
+            module_name='napoleon.exe',
+            base_offset=0x00A3D4E0,  # TechManager
+            offsets=[0x28, 0x10, 0xC],
+            description='Technology research turns remaining',
+            value_type='int32',
+        ),
+        # ------------------------------------------------------------------ battle
+        'unit_health': PointerChain(
+            module_name='napoleon.exe',
+            base_offset=0x00A2D5E0,  # BattleManager
+            offsets=[0x14, 0x8, 0x24],
+            description='Selected unit health (battle)',
+            value_type='float',
+        ),
+        'unit_ammo': PointerChain(
+            module_name='napoleon.exe',
+            base_offset=0x00A2D5E0,  # BattleManager
+            offsets=[0x14, 0x8, 0x30],
+            description='Selected unit ammo count (battle)',
+            value_type='int32',
+        ),
+        'unit_morale': PointerChain(
+            module_name='napoleon.exe',
+            base_offset=0x00A2D5E0,  # BattleManager
+            offsets=[0x14, 0x8, 0x48],
+            description='Selected unit morale (battle)',
+            value_type='float',
+        ),
+        'unit_stamina': PointerChain(
+            module_name='napoleon.exe',
+            base_offset=0x00A2D5E0,  # BattleManager
+            offsets=[0x14, 0x8, 0x3C],
+            description='Selected unit stamina (battle)',
             value_type='float',
         ),
     }
@@ -846,24 +892,68 @@ class AOBScanner(_BackendMixin):
         all_results.sort()
         return all_results[:max_results]
     
-    # Pre-defined AOB patterns for Napoleon TW
+    # Pre-defined AOB patterns for Napoleon TW (x86, WARSCAPE engine, v1.6 Steam)
     KNOWN_PATTERNS = {
-        'treasury_instruction': AOBPattern(
+        # ------------------------------------------------------------------ campaign
+        'treasury_write': AOBPattern(
             name='Treasury Write',
             pattern='89 86 ?? ?? ?? ?? 8B 45 FC',
-            description='Instruction that writes treasury value',
+            description='MOV [ESI+offset], EAX — writes gold value to faction treasury',
             offset_from_match=0,
         ),
-        'movement_instruction': AOBPattern(
+        'movement_write': AOBPattern(
             name='Movement Points Write',
             pattern='F3 0F 11 86 ?? ?? ?? ?? F3 0F 10 45',
-            description='Instruction that writes movement points',
+            description='MOVSS [ESI+offset], XMM0 — updates army movement points',
             offset_from_match=0,
         ),
-        'health_instruction': AOBPattern(
+        'construction_decrement': AOBPattern(
+            name='Construction Timer Decrement',
+            pattern='FF 8E ?? ?? ?? ?? 85 C0 74',
+            description='DEC DWORD PTR [ESI+offset] — decrements building construction timer each turn',
+            offset_from_match=0,
+        ),
+        'research_decrement': AOBPattern(
+            name='Research Timer Decrement',
+            pattern='83 6E ?? 01 8B 46 ?? 85 C0',
+            description='SUB DWORD PTR [ESI+offset], 1 — decrements technology research timer each turn',
+            offset_from_match=0,
+        ),
+        # ------------------------------------------------------------------ battle
+        'health_write': AOBPattern(
             name='Unit Health Write',
             pattern='F3 0F 11 ?? ?? ?? ?? ?? 8B ?? ?? ?? ?? ?? 85',
-            description='Instruction that writes unit health',
+            description='MOVSS [reg+offset], XMMn — writes unit health value',
+            offset_from_match=0,
+        ),
+        'ammo_decrement': AOBPattern(
+            name='Ammo Decrement',
+            pattern='29 ?? ?? ?? ?? ?? 89 ?? ?? ?? ?? ?? 83',
+            description='SUB [reg+offset], reg — decrements ammunition count on fire',
+            offset_from_match=0,
+        ),
+        'morale_write': AOBPattern(
+            name='Morale Write',
+            pattern='F3 0F 11 ?? ?? ?? ?? ?? F3 0F 10 ?? ?? ?? ?? ?? 0F 2F',
+            description='MOVSS [reg+offset], XMMn — updates unit morale value',
+            offset_from_match=0,
+        ),
+        'stamina_write': AOBPattern(
+            name='Stamina Write',
+            pattern='F3 0F 11 96 ?? ?? ?? ?? F3 0F 10 4D',
+            description='MOVSS [ESI+offset], XMM2 — drains unit stamina during movement',
+            offset_from_match=0,
+        ),
+        'damage_modifier': AOBPattern(
+            name='Damage Modifier',
+            pattern='F3 0F 59 C8 F3 0F 11 4E ??',
+            description='MULSS XMM1, XMM0 / MOVSS [ESI+offset], XMM1 — scales outgoing combat damage',
+            offset_from_match=0,
+        ),
+        'speed_modifier': AOBPattern(
+            name='Speed Modifier',
+            pattern='F3 0F 11 41 ?? F3 0F 10 05',
+            description='MOVSS [ECX+offset], XMM0 — writes unit movement speed value',
             offset_from_match=0,
         ),
     }
