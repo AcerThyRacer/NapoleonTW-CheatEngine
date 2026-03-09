@@ -101,3 +101,223 @@ class TestHotkeyManager:
         hm = HotkeyManager()
         result = hm.register_hotkey('f1', Mock(), 'Test')
         assert result is False
+
+
+# ══════════════════════════════════════════════════════════════
+# Overlay Animation Tests
+# ══════════════════════════════════════════════════════════════
+
+class TestOverlayAnimationStyle:
+    """Tests for OverlayAnimationStyle enum."""
+
+    def test_all_styles_have_display_names(self):
+        from src.trainer.overlay import OverlayAnimationStyle
+        names = OverlayAnimationStyle.display_names()
+        for member in OverlayAnimationStyle:
+            assert member.value in names, f"Missing display name for {member}"
+
+    def test_display_names_returns_dict(self):
+        from src.trainer.overlay import OverlayAnimationStyle
+        names = OverlayAnimationStyle.display_names()
+        assert isinstance(names, dict)
+        assert len(names) == len(OverlayAnimationStyle)
+
+    def test_from_value_valid(self):
+        from src.trainer.overlay import OverlayAnimationStyle
+        style = OverlayAnimationStyle.from_value("imperial_march")
+        assert style == OverlayAnimationStyle.IMPERIAL_MARCH
+
+    def test_from_value_invalid_returns_none(self):
+        from src.trainer.overlay import OverlayAnimationStyle
+        style = OverlayAnimationStyle.from_value("nonexistent_animation")
+        assert style == OverlayAnimationStyle.NONE
+
+    def test_from_value_each_member(self):
+        from src.trainer.overlay import OverlayAnimationStyle
+        for member in OverlayAnimationStyle:
+            assert OverlayAnimationStyle.from_value(member.value) == member
+
+    def test_style_count_at_least_twelve(self):
+        """Ensure many animation styles are available."""
+        from src.trainer.overlay import OverlayAnimationStyle
+        assert len(OverlayAnimationStyle) >= 12
+
+    def test_expected_styles_present(self):
+        from src.trainer.overlay import OverlayAnimationStyle
+        expected = [
+            "none", "imperial_march", "cannon_fire", "eagle_standard",
+            "smoke_screen", "battle_formation", "cavalry_charge",
+            "naval_broadside", "vive_empereur", "artillery_barrage",
+            "grapeshot", "old_guard", "russian_winter",
+        ]
+        values = [m.value for m in OverlayAnimationStyle]
+        for name in expected:
+            assert name in values, f"Expected style '{name}' not found"
+
+
+class TestOverlayAnimationManager:
+    """Tests for OverlayAnimationManager."""
+
+    def test_init_default_style(self):
+        from src.trainer.overlay import OverlayAnimationManager, OverlayAnimationStyle
+        mgr = OverlayAnimationManager()
+        assert mgr.animation_style == OverlayAnimationStyle.SMOKE_SCREEN
+
+    def test_init_custom_style(self):
+        from src.trainer.overlay import OverlayAnimationManager, OverlayAnimationStyle
+        mgr = OverlayAnimationManager(OverlayAnimationStyle.CANNON_FIRE)
+        assert mgr.animation_style == OverlayAnimationStyle.CANNON_FIRE
+
+    def test_set_animation_style(self):
+        from src.trainer.overlay import OverlayAnimationManager, OverlayAnimationStyle
+        mgr = OverlayAnimationManager()
+        mgr.animation_style = OverlayAnimationStyle.EAGLE_STANDARD
+        assert mgr.animation_style == OverlayAnimationStyle.EAGLE_STANDARD
+
+    def test_get_handler_returns_callable(self):
+        from src.trainer.overlay import OverlayAnimationManager, OverlayAnimationStyle
+        for style in OverlayAnimationStyle:
+            if style == OverlayAnimationStyle.NONE:
+                continue
+            mgr = OverlayAnimationManager(style)
+            handler_open = mgr._get_handler(opening=True)
+            handler_close = mgr._get_handler(opening=False)
+            assert callable(handler_open), f"Open handler not callable for {style}"
+            assert callable(handler_close), f"Close handler not callable for {style}"
+
+    def test_animate_open_none_style_shows_widget(self):
+        from src.trainer.overlay import OverlayAnimationManager, OverlayAnimationStyle
+        mgr = OverlayAnimationManager(OverlayAnimationStyle.NONE)
+        widget = MagicMock()
+        from unittest.mock import ANY
+        target = MagicMock()
+        mgr.animate_open(widget, target)
+        widget.setGeometry.assert_called_once_with(target)
+        widget.show.assert_called_once()
+
+    def test_animate_close_none_style_hides_widget(self):
+        from src.trainer.overlay import OverlayAnimationManager, OverlayAnimationStyle
+        mgr = OverlayAnimationManager(OverlayAnimationStyle.NONE)
+        widget = MagicMock()
+        callback = Mock()
+        mgr.animate_close(widget, callback)
+        widget.hide.assert_called_once()
+        callback.assert_called_once()
+
+    def test_animate_close_none_style_no_callback(self):
+        from src.trainer.overlay import OverlayAnimationManager, OverlayAnimationStyle
+        mgr = OverlayAnimationManager(OverlayAnimationStyle.NONE)
+        widget = MagicMock()
+        mgr.animate_close(widget)
+        widget.hide.assert_called_once()
+
+    def test_stop_active_when_no_group(self):
+        from src.trainer.overlay import OverlayAnimationManager
+        mgr = OverlayAnimationManager()
+        mgr._stop_active()  # should not raise
+
+    def test_stop_active_stops_group(self):
+        from src.trainer.overlay import OverlayAnimationManager
+        mgr = OverlayAnimationManager()
+        mock_group = MagicMock()
+        mgr._active_group = mock_group
+        mgr._stop_active()
+        mock_group.stop.assert_called_once()
+        assert mgr._active_group is None
+
+
+class TestCheatOverlayAnimationIntegration:
+    """Tests for CheatOverlay animation integration (no PyQt6 window)."""
+
+    def test_init_default_animation(self):
+        from src.trainer.overlay import CheatOverlay
+        overlay = CheatOverlay()
+        assert overlay.animation_style == "smoke_screen"
+
+    def test_init_custom_animation(self):
+        from src.trainer.overlay import CheatOverlay
+        overlay = CheatOverlay(animation_style="imperial_march")
+        assert overlay.animation_style == "imperial_march"
+
+    def test_set_animation_style(self):
+        from src.trainer.overlay import CheatOverlay
+        overlay = CheatOverlay()
+        overlay.animation_style = "cannon_fire"
+        assert overlay.animation_style == "cannon_fire"
+
+    def test_get_available_animations(self):
+        from src.trainer.overlay import CheatOverlay
+        overlay = CheatOverlay()
+        anims = overlay.get_available_animations()
+        assert isinstance(anims, dict)
+        assert len(anims) >= 12
+        assert "none" in anims
+        assert "imperial_march" in anims
+
+    @patch('src.trainer.overlay.PYQT_AVAILABLE', False)
+    def test_create_overlay_no_pyqt(self):
+        from src.trainer.overlay import CheatOverlay
+        overlay = CheatOverlay()
+        assert overlay.create_overlay() is False
+
+    def test_toggle_without_window(self):
+        from src.trainer.overlay import CheatOverlay
+        overlay = CheatOverlay()
+        overlay.toggle()  # should not raise; no window so still not visible
+        assert overlay.visible is False
+
+    def test_close_without_window(self):
+        from src.trainer.overlay import CheatOverlay
+        overlay = CheatOverlay()
+        overlay.close()  # should not raise
+
+    def test_is_visible_default(self):
+        from src.trainer.overlay import CheatOverlay
+        overlay = CheatOverlay()
+        assert overlay.is_visible() is False
+
+    def test_update_cheats_without_window(self):
+        from src.trainer.overlay import CheatOverlay
+        overlay = CheatOverlay()
+        overlay.update_cheats(["Gold", "God Mode"])  # should not raise
+
+
+class TestOverlayAnimationConfig:
+    """Tests for overlay animation in the config system."""
+
+    def test_config_default_overlay_animation(self):
+        from src.config.settings import Config
+        config = Config()
+        assert config.overlay_animation == "smoke_screen"
+
+    def test_config_to_dict_includes_overlay_animation(self):
+        from src.config.settings import Config
+        config = Config()
+        d = config.to_dict()
+        assert "overlay_animation" in d
+        assert d["overlay_animation"] == "smoke_screen"
+
+    def test_config_from_dict_with_overlay_animation(self):
+        from src.config.settings import Config
+        data = {"overlay_animation": "cavalry_charge"}
+        config = Config.from_dict(data)
+        assert config.overlay_animation == "cavalry_charge"
+
+    def test_config_from_dict_without_overlay_animation(self):
+        from src.config.settings import Config
+        config = Config.from_dict({})
+        assert config.overlay_animation == "smoke_screen"
+
+    def test_config_validation_overlay_animation(self):
+        from src.config.settings import ConfigManager
+        ConfigManager.reset_instance()
+        mgr = ConfigManager()
+        errors = mgr._validate_config({"overlay_animation": "imperial_march"})
+        assert errors == []
+
+    def test_config_validation_overlay_animation_wrong_type(self):
+        from src.config.settings import ConfigManager
+        ConfigManager.reset_instance()
+        mgr = ConfigManager()
+        errors = mgr._validate_config({"overlay_animation": 123})
+        assert len(errors) > 0
