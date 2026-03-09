@@ -11,6 +11,19 @@ from pathlib import Path
 __version__ = "2.1.0"
 
 
+def _load_startup_plugins():
+    """Load startup plugins from the configured plugin directories."""
+    try:
+        from src.plugins.manager import PluginManager
+
+        plugin_manager = PluginManager()
+        plugin_manager.load_all()
+        return plugin_manager
+    except Exception as e:
+        print(f"Warning: failed to load startup plugins: {e}")
+        return None
+
+
 def main():
     """Main entry point."""
     parser = argparse.ArgumentParser(
@@ -65,6 +78,8 @@ def main():
 
 def launch_gui():
     """Launch the GUI application."""
+    _load_startup_plugins()
+
     try:
         # Try Napoleon Control Panel first (enhanced GUI)
         from src.gui.napoleon_panel import main as napoleon_main
