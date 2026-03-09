@@ -1,0 +1,328 @@
+"""
+Memory backend abstraction layer.
+
+Provides a unified API over multiple memory editing libraries:
+- pymem (preferred, well-documented)
+- PyMemoryEditor (fallback)
+- /proc/<pid>/mem direct access (Linux fallback)
+
+This isolates the rest of the codebase from library-specific API differences.
+"""
+
+import struct
+import logging
+import os
+import sys
+from typing import Optional, List, Dict, Any
+from abc import ABC, abstractmethod
+
+logger = logging.getLogger('napoleon.memory.backend')
+
+
+class MemoryBackend(ABC):
+    """Abstract memory access backend."""
+    
+    @abstractmethod
+    def open(self, pid: int) -> bool:
+        """Open/attach to a process."""
+        ...
+    
+    @abstractmethod
+    def close(self) -> None:
+        """Close/detach from the process."""
+        ...
+    
+    @abstractmethod
+    def read_bytes(self, address: int, size: int) -> Optional[bytes]:
+        """Read raw bytes from process memory."""
+        ...
+    
+    @abstractmethod
+    def write_bytes(self, address: int, data: bytes) -> bool:
+        """Write raw bytes to process memory."""
+        ...
+    
+    @abstractmethod
+    def get_readable_regions(self) -> List[Dict[str, int]]:
+        """Get list of readable memory regions: [{'address': int, 'size': int}]."""
+        ...
+    
+    @property
+    @abstractmethod
+    def is_open(self) -> bool:
+        """Whether the backend is attached to a process."""
+        ...
+    
+    def search_bytes(self, pattern: bytes, regions: Optional[List[Dict]] = None) -> List[int]:
+        """
+        Search for a byte pattern across all readable regions.
+        Default implementation — backends can override for speed.
+        """
+        if regions is None:
+            regions = self.get_readable_regions()
+        
+        results = []
+        for region in regions:
+            data = self.read_bytes(region['address'], region['size'])
+            if not data:
+                continue
+            
+            start = 0
+            while True:
+                pos = data.find(pattern, start)
+                if pos == -1:
+                    break
+                results.append(region['address'] + pos)
+                start = pos + 1
+        
+        return results
+
+
+class PymemBackend(MemoryBackend):
+    """Backend using pymem library (preferred on Windows, works on Linux with Wine)."""
+    
+    def __init__(self):
+        self._pm = None
+        self._pid: Optional[int] = None
+    
+    def open(self, pid: int) -> bool:
+        try:
+            import pymem
+            self._pm = pymem.Pymem()
+            self._pm.open_process_from_id(pid)
+            self._pid = pid
+            logger.info("Pymem backend opened PID %d", pid)
+            return True
+        except ImportError:
+            logger.debug("pymem not available")
+            return False
+        except Exception as e:
+            logger.error("Pymem open failed: %s", e)
+            self._pm = None
+            return False
+    
+    def close(self) -> None:
+        if self._pm:
+            try:
+                self._pm.close_process()
+            except Exception:
+                pass
+            self._pm = None
+            self._pid = None
+    
+    def read_bytes(self, address: int, size: int) -> Optional[bytes]:
+        if not self._pm:
+            return None
+        try:
+            return self._pm.read_bytes(address, size)
+        except Exception:
+            return None
+    
+    def write_bytes(self, address: int, data: bytes) -> bool:
+        if not self._pm:
+            return False
+        try:
+            self._pm.write_bytes(address, data, len(data))
+            return True
+        except Exception as e:
+            logger.debug("Pymem write error at 0x%X: %s", address, e)
+            return False
+    
+    def get_readable_regions(self) -> List[Dict[str, int]]:
+        if not self._pm or not self._pid:
+            return []
+        try:
+            import pymem.process
+            regions = []
+            for module in pymem.process.enum_process_module(self._pm.process_handle):
+                regions.append({
+                    'address': module.lpBaseOfDll,
+                    'size': module.SizeOfImage,
+                })
+            return regions
+        except Exception:
+            return self._fallback_regions()
+    
+    def _fallback_regions(self) -> List[Dict[str, int]]:
+        """Fallback region list if module enumeration fails."""
+        return [
+            {'address': 0x00400000, 'size': 0x02000000},
+            {'address': 0x10000000, 'size': 0x10000000},
+        ]
+    
+    @property
+    def is_open(self) -> bool:
+        return self._pm is not None
+    
+    def search_bytes(self, pattern: bytes, regions: Optional[List[Dict]] = None) -> List[int]:
+        """Override with pymem's native pattern scan if available."""
+        if self._pm:
+            try:
+                import pymem.pattern
+                result = pymem.pattern.pattern_scan_all(self._pm.process_handle, pattern)
+                if result is not None:
+                    return result if isinstance(result, list) else [result]
+            except Exception:
+                pass
+        return super().search_bytes(pattern, regions)
+
+
+class PyMemoryEditorBackend(MemoryBackend):
+    """Backend using PyMemoryEditor library."""
+    
+    def __init__(self):
+        self._editor = None
+        self._pid: Optional[int] = None
+    
+    def open(self, pid: int) -> bool:
+        try:
+            from PyMemoryEditor import OpenProcess
+            self._editor = OpenProcess(pid)
+            self._pid = pid
+            logger.info("PyMemoryEditor backend opened PID %d", pid)
+            return True
+        except ImportError:
+            logger.debug("PyMemoryEditor not available")
+            return False
+        except Exception as e:
+            logger.error("PyMemoryEditor open failed: %s", e)
+            self._editor = None
+            return False
+    
+    def close(self) -> None:
+        if self._editor:
+            try:
+                self._editor.close()
+            except Exception:
+                pass
+            self._editor = None
+            self._pid = None
+    
+    def read_bytes(self, address: int, size: int) -> Optional[bytes]:
+        if not self._editor:
+            return None
+        try:
+            return self._editor.read_process_memory(address, bytes, size)
+        except Exception:
+            return None
+    
+    def write_bytes(self, address: int, data: bytes) -> bool:
+        if not self._editor:
+            return False
+        try:
+            self._editor.write_process_memory(address, data)
+            return True
+        except Exception:
+            return False
+    
+    def get_readable_regions(self) -> List[Dict[str, int]]:
+        # PyMemoryEditor doesn't expose region enumeration directly
+        return [
+            {'address': 0x00400000, 'size': 0x02000000},
+            {'address': 0x10000000, 'size': 0x10000000},
+        ]
+    
+    @property
+    def is_open(self) -> bool:
+        return self._editor is not None
+
+
+class ProcMemBackend(MemoryBackend):
+    """Direct /proc/<pid>/mem access for Linux."""
+    
+    def __init__(self):
+        self._pid: Optional[int] = None
+        self._mem_fd = None
+    
+    def open(self, pid: int) -> bool:
+        if sys.platform != 'linux':
+            return False
+        try:
+            mem_path = f"/proc/{pid}/mem"
+            self._mem_fd = os.open(mem_path, os.O_RDWR)
+            self._pid = pid
+            logger.info("ProcMem backend opened PID %d", pid)
+            return True
+        except (OSError, PermissionError) as e:
+            logger.debug("ProcMem open failed: %s", e)
+            try:
+                # Try read-only
+                mem_path = f"/proc/{pid}/mem"
+                self._mem_fd = os.open(mem_path, os.O_RDONLY)
+                self._pid = pid
+                logger.info("ProcMem backend opened PID %d (read-only)", pid)
+                return True
+            except Exception:
+                return False
+    
+    def close(self) -> None:
+        if self._mem_fd is not None:
+            try:
+                os.close(self._mem_fd)
+            except Exception:
+                pass
+            self._mem_fd = None
+            self._pid = None
+    
+    def read_bytes(self, address: int, size: int) -> Optional[bytes]:
+        if self._mem_fd is None:
+            return None
+        try:
+            os.lseek(self._mem_fd, address, os.SEEK_SET)
+            return os.read(self._mem_fd, size)
+        except Exception:
+            return None
+    
+    def write_bytes(self, address: int, data: bytes) -> bool:
+        if self._mem_fd is None:
+            return False
+        try:
+            os.lseek(self._mem_fd, address, os.SEEK_SET)
+            os.write(self._mem_fd, data)
+            return True
+        except Exception:
+            return False
+    
+    def get_readable_regions(self) -> List[Dict[str, int]]:
+        if not self._pid:
+            return []
+        regions = []
+        try:
+            maps_path = f"/proc/{self._pid}/maps"
+            with open(maps_path, 'r') as f:
+                for line in f:
+                    parts = line.split()
+                    if len(parts) >= 2 and 'r' in parts[1]:
+                        addr_range = parts[0].split('-')
+                        start = int(addr_range[0], 16)
+                        end = int(addr_range[1], 16)
+                        regions.append({'address': start, 'size': end - start})
+        except Exception as e:
+            logger.debug("Failed to read /proc/%d/maps: %s", self._pid, e)
+        return regions
+    
+    @property
+    def is_open(self) -> bool:
+        return self._mem_fd is not None
+
+
+def create_backend(pid: int) -> Optional[MemoryBackend]:
+    """
+    Create the best available memory backend for the given PID.
+    Tries backends in order of preference.
+    """
+    backends = [
+        PymemBackend,
+        PyMemoryEditorBackend,
+        ProcMemBackend,
+    ]
+    
+    for backend_cls in backends:
+        backend = backend_cls()
+        if backend.open(pid):
+            logger.info("Using memory backend: %s", backend_cls.__name__)
+            return backend
+        logger.debug("Backend %s not available", backend_cls.__name__)
+    
+    logger.error("No memory backend available for PID %d", pid)
+    return None
