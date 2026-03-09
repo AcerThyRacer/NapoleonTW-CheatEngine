@@ -68,7 +68,7 @@ CATEGORY_ICON_MAP: Dict[str, tuple] = {
 }
 
 
-def _load_category_icon(category_value: str, size: int = 32) -> QIcon:
+def _load_category_icon(category_value: str, size: int = 32) -> "QIcon":
     """Load an SVG icon for *category_value*, falling back to an empty icon."""
     info = CATEGORY_ICON_MAP.get(category_value)
     if info is None:

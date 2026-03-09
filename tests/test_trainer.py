@@ -149,6 +149,7 @@ class TestOverlayAnimationStyle:
             "smoke_screen", "battle_formation", "cavalry_charge",
             "naval_broadside", "vive_empereur", "artillery_barrage",
             "grapeshot", "old_guard", "russian_winter",
+            "lightning_strike", "flag_wave", "cannonball_trail", "morale_boost",
         ]
         values = [m.value for m in OverlayAnimationStyle]
         for name in expected:
