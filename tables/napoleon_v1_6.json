@@ -1,17 +1,23 @@
 {
     "game": "Napoleon Total War",
     "version": "1.6 (Steam)",
-    "platform": ["windows", "linux"],
+    "platform": [
+        "windows",
+        "linux"
+    ],
     "created": "2026-03-09",
     "description": "Cheat table for Napoleon Total War Steam version 1.6",
     "notes": "Pointer offsets may vary between game patches. Use AOB scanning for more stable addresses. All AOB patterns are x86 (32-bit) WARSCAPE engine signatures.",
     "verified": false,
-
     "pointer_chains": {
         "treasury": {
             "module": "napoleon.exe",
             "base_offset": "0x00A1B2C0",
-            "offsets": ["0x4C", "0x10", "0x8"],
+            "offsets": [
+                "0x4C",
+                "0x10",
+                "0x8"
+            ],
             "type": "int32",
             "description": "Player faction treasury (gold)",
             "cheat": "infinite_gold",
@@ -20,7 +26,11 @@
         "movement_points": {
             "module": "napoleon.exe",
             "base_offset": "0x00A1B2C0",
-            "offsets": ["0x4C", "0x10", "0x14"],
+            "offsets": [
+                "0x4C",
+                "0x10",
+                "0x14"
+            ],
             "type": "float",
             "description": "Selected army movement points (campaign map)",
             "cheat": "unlimited_movement",
@@ -29,7 +39,11 @@
         "construction_timer": {
             "module": "napoleon.exe",
             "base_offset": "0x00A3D4E0",
-            "offsets": ["0x28", "0x8", "0xC"],
+            "offsets": [
+                "0x28",
+                "0x8",
+                "0xC"
+            ],
             "type": "int32",
             "description": "Building construction turns remaining (selected settlement)",
             "cheat": "instant_construction",
@@ -38,7 +52,11 @@
         "research_timer": {
             "module": "napoleon.exe",
             "base_offset": "0x00A3D4E0",
-            "offsets": ["0x28", "0x10", "0xC"],
+            "offsets": [
+                "0x28",
+                "0x10",
+                "0xC"
+            ],
             "type": "int32",
             "description": "Technology research turns remaining",
             "cheat": "fast_research",
@@ -47,7 +65,11 @@
         "unit_health": {
             "module": "napoleon.exe",
             "base_offset": "0x00A2D5E0",
-            "offsets": ["0x14", "0x8", "0x24"],
+            "offsets": [
+                "0x14",
+                "0x8",
+                "0x24"
+            ],
             "type": "float",
             "description": "Selected unit health value (battle)",
             "cheat": "god_mode",
@@ -56,7 +78,11 @@
         "unit_ammo": {
             "module": "napoleon.exe",
             "base_offset": "0x00A2D5E0",
-            "offsets": ["0x14", "0x8", "0x30"],
+            "offsets": [
+                "0x14",
+                "0x8",
+                "0x30"
+            ],
             "type": "int32",
             "description": "Selected unit ammo count (battle)",
             "cheat": "unlimited_ammo",
@@ -65,7 +91,11 @@
         "unit_morale": {
             "module": "napoleon.exe",
             "base_offset": "0x00A2D5E0",
-            "offsets": ["0x14", "0x8", "0x48"],
+            "offsets": [
+                "0x14",
+                "0x8",
+                "0x48"
+            ],
             "type": "float",
             "description": "Selected unit morale value (battle)",
             "cheat": "high_morale",
@@ -74,18 +104,190 @@
         "unit_stamina": {
             "module": "napoleon.exe",
             "base_offset": "0x00A2D5E0",
-            "offsets": ["0x14", "0x8", "0x3C"],
+            "offsets": [
+                "0x14",
+                "0x8",
+                "0x3C"
+            ],
             "type": "float",
             "description": "Selected unit stamina (battle)",
             "cheat": "infinite_stamina",
             "notes": "BattleManager -> SelectedUnit -> UnitData. Valid only during an active battle."
+        },
+        "agent_action_points": {
+            "module": "napoleon.exe",
+            "base_offset": "0x00A1B2C0",
+            "offsets": [
+                "0x58",
+                "0x1C",
+                "0x18"
+            ],
+            "type": "float",
+            "description": "Selected agent action points on campaign map",
+            "cheat": "infinite_action_points",
+            "notes": "CampaignManager -> SelectedAgent -> Action pool."
+        },
+        "research_points": {
+            "module": "napoleon.exe",
+            "base_offset": "0x00A3D4E0",
+            "offsets": [
+                "0x28",
+                "0x10",
+                "0x18"
+            ],
+            "type": "int32",
+            "description": "Technology research points pool",
+            "cheat": "max_research_points",
+            "notes": "TechManager -> ResearchPool -> Current points."
+        },
+        "agent_training_timer": {
+            "module": "napoleon.exe",
+            "base_offset": "0x00A1B2C0",
+            "offsets": [
+                "0x58",
+                "0x24",
+                "0xC"
+            ],
+            "type": "int32",
+            "description": "Turns remaining for the selected agent training queue",
+            "cheat": "instant_agent_training",
+            "notes": "AgentManager -> TrainingQueue -> Turns remaining."
+        },
+        "diplomatic_action_cost": {
+            "module": "napoleon.exe",
+            "base_offset": "0x00A1B2C0",
+            "offsets": [
+                "0x60",
+                "0x18",
+                "0x10"
+            ],
+            "type": "int32",
+            "description": "Cost for current diplomatic action",
+            "cheat": "free_diplomatic_actions",
+            "notes": "DiplomacyManager -> PendingDeal -> Action cost."
+        },
+        "army_visibility_flag": {
+            "module": "napoleon.exe",
+            "base_offset": "0x00A1B2C0",
+            "offsets": [
+                "0x4C",
+                "0x28",
+                "0x4"
+            ],
+            "type": "int32",
+            "description": "Selected army visibility / fog immunity flag",
+            "cheat": "invisible_armies",
+            "notes": "CampaignArmy -> Visibility state; 1 keeps the army hidden from fog checks."
+        },
+        "artillery_reload_timer": {
+            "module": "napoleon.exe",
+            "base_offset": "0x00A2D5E0",
+            "offsets": [
+                "0x14",
+                "0x8",
+                "0x54"
+            ],
+            "type": "float",
+            "description": "Selected artillery reload timer in battle",
+            "cheat": "instant_reload",
+            "notes": "BattleManager -> SelectedUnit -> WeaponComponent reload timer."
+        },
+        "unit_range": {
+            "module": "napoleon.exe",
+            "base_offset": "0x00A2D5E0",
+            "offsets": [
+                "0x14",
+                "0x8",
+                "0x68"
+            ],
+            "type": "float",
+            "description": "Selected unit firing range in battle",
+            "cheat": "range_boost",
+            "notes": "BattleManager -> SelectedUnit -> Weapon stats range."
+        },
+        "charge_speed": {
+            "module": "napoleon.exe",
+            "base_offset": "0x00A2D5E0",
+            "offsets": [
+                "0x14",
+                "0x8",
+                "0x6C"
+            ],
+            "type": "float",
+            "description": "Selected cavalry charge / movement speed modifier",
+            "cheat": "speed_boost",
+            "notes": "BattleManager -> SelectedUnit -> Speed stat."
+        },
+        "unit_regeneration": {
+            "module": "napoleon.exe",
+            "base_offset": "0x00A2D5E0",
+            "offsets": [
+                "0x14",
+                "0x8",
+                "0x70"
+            ],
+            "type": "float",
+            "description": "Selected unit regeneration / heal tick amount",
+            "cheat": "infinite_unit_health",
+            "notes": "BattleManager -> SelectedUnit -> Regeneration tick value."
+        },
+        "autoresolve_victory_flag": {
+            "module": "napoleon.exe",
+            "base_offset": "0x00A1F480",
+            "offsets": [
+                "0x20",
+                "0x10",
+                "0x4"
+            ],
+            "type": "int32",
+            "description": "Battle auto-resolve winner flag",
+            "cheat": "instant_victory",
+            "notes": "AutoResolveManager -> ResultData -> Winner flag (1 = player victory)."
+        },
+        "public_order": {
+            "module": "napoleon.exe",
+            "base_offset": "0x00A3D4E0",
+            "offsets": [
+                "0x30",
+                "0x14",
+                "0x8"
+            ],
+            "type": "int32",
+            "description": "Selected city public order value",
+            "cheat": "max_public_order",
+            "notes": "SettlementManager -> PublicOrder component."
+        },
+        "attrition_rate": {
+            "module": "napoleon.exe",
+            "base_offset": "0x00A1B2C0",
+            "offsets": [
+                "0x4C",
+                "0x18",
+                "0x20"
+            ],
+            "type": "float",
+            "description": "Selected army attrition rate on campaign map",
+            "cheat": "zero_attrition",
+            "notes": "CampaignArmy -> Attrition component. Freeze at 0.0 to prevent losses."
+        },
+        "veterancy_upgrade_cost": {
+            "module": "napoleon.exe",
+            "base_offset": "0x00A3D4E0",
+            "offsets": [
+                "0x34",
+                "0xC",
+                "0x10"
+            ],
+            "type": "int32",
+            "description": "Cost for unit veterancy / upgrade action",
+            "cheat": "free_upgrades",
+            "notes": "UpgradeManager -> Selected upgrade cost."
         }
     },
-
     "aob_patterns": {
         "treasury_write": {
             "pattern": "89 86 ?? ?? ?? ?? 8B 45 FC",
-            "description": "Instruction that writes treasury (gold) value — MOV [ESI+offset], EAX",
+            "description": "Instruction that writes treasury (gold) value \u2014 MOV [ESI+offset], EAX",
             "offset_from_match": 0,
             "nop_bytes": 6,
             "cheat": "infinite_gold",
@@ -93,7 +295,7 @@
         },
         "movement_write": {
             "pattern": "F3 0F 11 86 ?? ?? ?? ?? F3 0F 10 45",
-            "description": "Instruction that writes movement points — MOVSS [ESI+offset], XMM0",
+            "description": "Instruction that writes movement points \u2014 MOVSS [ESI+offset], XMM0",
             "offset_from_match": 0,
             "nop_bytes": 8,
             "cheat": "unlimited_movement",
@@ -101,7 +303,7 @@
         },
         "health_write": {
             "pattern": "F3 0F 11 ?? ?? ?? ?? ?? 8B ?? ?? ?? ?? ?? 85",
-            "description": "Instruction that writes unit health — MOVSS [reg+offset], XMMn",
+            "description": "Instruction that writes unit health \u2014 MOVSS [reg+offset], XMMn",
             "offset_from_match": 0,
             "nop_bytes": 8,
             "cheat": "god_mode",
@@ -109,7 +311,7 @@
         },
         "ammo_decrement": {
             "pattern": "29 ?? ?? ?? ?? ?? 89 ?? ?? ?? ?? ?? 83",
-            "description": "Instruction that decrements ammo — SUB [reg+offset], reg",
+            "description": "Instruction that decrements ammo \u2014 SUB [reg+offset], reg",
             "offset_from_match": 0,
             "nop_bytes": 6,
             "cheat": "unlimited_ammo",
@@ -117,7 +319,7 @@
         },
         "morale_write": {
             "pattern": "F3 0F 11 ?? ?? ?? ?? ?? F3 0F 10 ?? ?? ?? ?? ?? 0F 2F",
-            "description": "Instruction that updates unit morale — MOVSS [reg+offset], XMMn",
+            "description": "Instruction that updates unit morale \u2014 MOVSS [reg+offset], XMMn",
             "offset_from_match": 0,
             "nop_bytes": 8,
             "cheat": "high_morale",
@@ -125,7 +327,7 @@
         },
         "stamina_write": {
             "pattern": "F3 0F 11 96 ?? ?? ?? ?? F3 0F 10 4D",
-            "description": "Instruction that decreases unit stamina during movement — MOVSS [ESI+offset], XMM2",
+            "description": "Instruction that decreases unit stamina during movement \u2014 MOVSS [ESI+offset], XMM2",
             "offset_from_match": 0,
             "nop_bytes": 8,
             "cheat": "infinite_stamina",
@@ -133,7 +335,7 @@
         },
         "construction_decrement": {
             "pattern": "FF 8E ?? ?? ?? ?? 85 C0 74",
-            "description": "Instruction that decrements construction timer each turn — DEC DWORD PTR [ESI+offset]",
+            "description": "Instruction that decrements construction timer each turn \u2014 DEC DWORD PTR [ESI+offset]",
             "offset_from_match": 0,
             "nop_bytes": 6,
             "cheat": "instant_construction",
@@ -141,7 +343,7 @@
         },
         "research_decrement": {
             "pattern": "83 6E ?? 01 8B 46 ?? 85 C0",
-            "description": "Instruction that decrements research timer each turn — SUB DWORD PTR [ESI+offset], 1",
+            "description": "Instruction that decrements research timer each turn \u2014 SUB DWORD PTR [ESI+offset], 1",
             "offset_from_match": 0,
             "nop_bytes": 4,
             "cheat": "fast_research",
@@ -149,7 +351,7 @@
         },
         "damage_modifier": {
             "pattern": "F3 0F 59 C8 F3 0F 11 4E ??",
-            "description": "Instruction that scales outgoing combat damage — MULSS XMM1, XMM0 followed by MOVSS [ESI+offset], XMM1",
+            "description": "Instruction that scales outgoing combat damage \u2014 MULSS XMM1, XMM0 followed by MOVSS [ESI+offset], XMM1",
             "offset_from_match": 0,
             "nop_bytes": 4,
             "cheat": "one_hit_kill",
@@ -157,14 +359,117 @@
         },
         "speed_modifier": {
             "pattern": "F3 0F 11 41 ?? F3 0F 10 05",
-            "description": "Instruction that writes unit movement speed — MOVSS [ECX+offset], XMM0",
+            "description": "Instruction that writes unit movement speed \u2014 MOVSS [ECX+offset], XMM0",
             "offset_from_match": 0,
             "nop_bytes": 5,
             "cheat": "super_speed",
             "cheat_action": "Write a high speed value; do not NOP or units stop moving"
+        },
+        "agent_action_write": {
+            "pattern": "F3 0F 11 8E ?? ?? ?? ?? 8B 46 18",
+            "description": "Instruction that writes agent action points",
+            "offset_from_match": 0,
+            "nop_bytes": 8,
+            "cheat": "infinite_action_points",
+            "cheat_action": "NOP to stop action point drain after agent actions"
+        },
+        "research_points_write": {
+            "pattern": "89 86 ?? ?? ?? ?? 8B 4D F8 89 8E",
+            "description": "Instruction that writes research points pool",
+            "offset_from_match": 0,
+            "nop_bytes": 6,
+            "cheat": "max_research_points",
+            "cheat_action": "NOP the write and freeze a large research points value"
+        },
+        "agent_training_decrement": {
+            "pattern": "FF 8E ?? ?? ?? ?? 8B 46 20 85 C0",
+            "description": "Instruction that decrements agent training timer",
+            "offset_from_match": 0,
+            "nop_bytes": 6,
+            "cheat": "instant_agent_training",
+            "cheat_action": "NOP timer decrement and write 0 to complete instantly"
+        },
+        "diplomacy_cost_write": {
+            "pattern": "89 46 ?? 8B 55 F4 89 56 ?? 85 C0",
+            "description": "Instruction that writes diplomatic action cost",
+            "offset_from_match": 0,
+            "nop_bytes": 5,
+            "cheat": "free_diplomatic_actions",
+            "cheat_action": "NOP the cost write and force 0 cost"
+        },
+        "fog_of_war_check": {
+            "pattern": "83 7E ?? 00 74 ?? 8B 46 ?? 85 C0",
+            "description": "Visibility / fog-of-war army check",
+            "offset_from_match": 0,
+            "nop_bytes": 6,
+            "cheat": "invisible_armies",
+            "cheat_action": "Bypass fog-of-war visibility check for selected army"
+        },
+        "reload_timer_write": {
+            "pattern": "F3 0F 11 86 ?? ?? ?? ?? F3 0F 10 86",
+            "description": "Instruction that writes reload timer for ranged weapons",
+            "offset_from_match": 0,
+            "nop_bytes": 8,
+            "cheat": "instant_reload",
+            "cheat_action": "NOP reload timer updates for instant reloading"
+        },
+        "range_modifier": {
+            "pattern": "F3 0F 11 46 ?? D9 5E ?? 8B 4E",
+            "description": "Instruction that writes firing range modifier",
+            "offset_from_match": 0,
+            "nop_bytes": 5,
+            "cheat": "range_boost",
+            "cheat_action": "Write a larger range value into the current weapon stats field"
+        },
+        "charge_speed_write": {
+            "pattern": "F3 0F 11 41 ?? 8B 49 ?? 85 C9",
+            "description": "Instruction that writes cavalry charge speed",
+            "offset_from_match": 0,
+            "nop_bytes": 5,
+            "cheat": "speed_boost",
+            "cheat_action": "Redirect to code cave that writes a high speed value"
+        },
+        "regeneration_tick": {
+            "pattern": "F3 0F 58 86 ?? ?? ?? ?? F3 0F 11 86",
+            "description": "Instruction that applies unit regeneration or heal tick",
+            "offset_from_match": 0,
+            "nop_bytes": 8,
+            "cheat": "infinite_unit_health",
+            "cheat_action": "Freeze a positive regeneration tick for constant healing"
+        },
+        "autoresolve_result_write": {
+            "pattern": "89 41 ?? 8B 50 ?? 85 D2 74 ?? 8B 41",
+            "description": "Instruction that writes auto-resolve battle result flag",
+            "offset_from_match": 0,
+            "nop_bytes": 5,
+            "cheat": "instant_victory",
+            "cheat_action": "Force the player victory flag before battle result finalization"
+        },
+        "public_order_write": {
+            "pattern": "89 96 ?? ?? ?? ?? 83 BE ?? ?? ?? ?? 00",
+            "description": "Instruction that writes city public order",
+            "offset_from_match": 0,
+            "nop_bytes": 6,
+            "cheat": "max_public_order",
+            "cheat_action": "Freeze public order at a high value"
+        },
+        "attrition_tick": {
+            "pattern": "F3 0F 11 86 ?? ?? ?? ?? 0F 57 C9 F3 0F 5C",
+            "description": "Instruction that applies campaign attrition damage",
+            "offset_from_match": 0,
+            "nop_bytes": 8,
+            "cheat": "zero_attrition",
+            "cheat_action": "NOP attrition damage tick or freeze rate at 0.0"
+        },
+        "veterancy_upgrade_cost_write": {
+            "pattern": "89 46 ?? 8B 4D EC 89 4E ?? 8B 46",
+            "description": "Instruction that writes veterancy / upgrade cost",
+            "offset_from_match": 0,
+            "nop_bytes": 5,
+            "cheat": "free_upgrades",
+            "cheat_action": "NOP the upgrade cost write to keep cost at zero"
         }
     },
-
     "scan_guides": {
         "treasury": {
             "type": "int32",
@@ -267,6 +572,162 @@
                 "4. End turn; scan for decreased value",
                 "5. Repeat until address found",
                 "6. Write 1 to complete research on the next turn"
+            ]
+        },
+        "agent_action_points": {
+            "type": "float",
+            "cheat": "infinite_action_points",
+            "steps": [
+                "1. Select an agent on the campaign map",
+                "2. Scan for unknown value (Float)",
+                "3. Perform an action that spends points",
+                "4. Scan for decreased value",
+                "5. End turn or rest to refresh points and scan for increased value",
+                "6. Freeze at 999.0 for infinite action points"
+            ]
+        },
+        "research_points": {
+            "type": "int32",
+            "cheat": "max_research_points",
+            "steps": [
+                "1. Open the technology panel and note current research points",
+                "2. Scan for that exact value (4 Bytes / int32)",
+                "3. End turn or trigger research gain",
+                "4. Scan for changed or increased value",
+                "5. Repeat until the research points pool address is isolated",
+                "6. Write a large value such as 9999 and freeze if desired"
+            ]
+        },
+        "agent_training_timer": {
+            "type": "int32",
+            "cheat": "instant_agent_training",
+            "steps": [
+                "1. Queue agent training or recruitment",
+                "2. Note the turns remaining",
+                "3. Scan for that exact value (4 Bytes / int32)",
+                "4. End turn and scan for decreased value",
+                "5. Repeat until the timer address is found",
+                "6. Write 0 to complete training immediately"
+            ]
+        },
+        "diplomatic_action_cost": {
+            "type": "int32",
+            "cheat": "free_diplomatic_actions",
+            "steps": [
+                "1. Open a diplomacy action and note its cost",
+                "2. Scan for that exact value (4 Bytes / int32)",
+                "3. Change to a different treaty or target to alter the cost",
+                "4. Scan for changed value",
+                "5. Repeat until a stable cost address remains",
+                "6. Write 0 to make the diplomatic action free"
+            ]
+        },
+        "army_visibility_flag": {
+            "type": "int32",
+            "cheat": "invisible_armies",
+            "steps": [
+                "1. Select an army just inside enemy fog of war",
+                "2. Scan for unknown initial value (4 Bytes / int32)",
+                "3. Move the army into a revealed tile and scan for changed value",
+                "4. Move back into fog and scan again",
+                "5. Repeat until the visibility flag is isolated",
+                "6. Set the flag to 1 to keep the army hidden / fog immune"
+            ]
+        },
+        "artillery_reload_timer": {
+            "type": "float",
+            "cheat": "instant_reload",
+            "steps": [
+                "1. Start a battle with artillery or muskets selected",
+                "2. Scan for unknown value (Float)",
+                "3. Fire a volley and scan for increased reload timer value",
+                "4. Wait for the unit to reload and scan for decreased value",
+                "5. Repeat until the timer address remains",
+                "6. Freeze at 0.0 for instant reloading"
+            ]
+        },
+        "unit_range": {
+            "type": "float",
+            "cheat": "range_boost",
+            "steps": [
+                "1. Select a ranged unit in battle and note its firing range",
+                "2. Scan for that range value as Float",
+                "3. Select a different ranged unit with a different range",
+                "4. Scan for changed value",
+                "5. Repeat until the range stat address is isolated",
+                "6. Write a larger value such as 500.0"
+            ]
+        },
+        "charge_speed": {
+            "type": "float",
+            "cheat": "speed_boost",
+            "steps": [
+                "1. Select a cavalry unit in battle",
+                "2. Scan for unknown value (Float)",
+                "3. Order a charge and scan for increased speed-related values",
+                "4. Halt the unit and scan for decreased value",
+                "5. Repeat until one or two speed values remain",
+                "6. Freeze a large value such as 4.0 for a speed boost"
+            ]
+        },
+        "unit_regeneration": {
+            "type": "float",
+            "cheat": "infinite_unit_health",
+            "steps": [
+                "1. Start a battle and select a damaged unit",
+                "2. Scan for unknown value (Float)",
+                "3. Allow the unit to recover or receive healing and scan for increased value",
+                "4. Let the unit take more damage and scan for decreased value",
+                "5. Repeat until the regeneration tick address is found",
+                "6. Freeze a positive regeneration value to keep restoring health"
+            ]
+        },
+        "autoresolve_victory_flag": {
+            "type": "int32",
+            "cheat": "instant_victory",
+            "steps": [
+                "1. Trigger an auto-resolve preview for a battle",
+                "2. Scan for unknown value (4 Bytes / int32)",
+                "3. Change the engagement odds by moving armies and scan for changed value",
+                "4. Confirm or cancel the preview and scan again",
+                "5. Repeat until the winner/result flag address is isolated",
+                "6. Write 1 to force a player victory result"
+            ]
+        },
+        "public_order": {
+            "type": "int32",
+            "cheat": "max_public_order",
+            "steps": [
+                "1. Open a city details panel and note its public order",
+                "2. Scan for that exact value (4 Bytes / int32)",
+                "3. End turn or change taxes to modify public order",
+                "4. Scan for the new value",
+                "5. Repeat until the public order address is found",
+                "6. Freeze at 100 to keep order maxed"
+            ]
+        },
+        "attrition_rate": {
+            "type": "float",
+            "cheat": "zero_attrition",
+            "steps": [
+                "1. Place an army in an attrition-causing location",
+                "2. Scan for unknown value (Float)",
+                "3. End turn and scan for changed or decreased-value health-related rates",
+                "4. Move the army to a safe region and scan for decreased attrition values",
+                "5. Repeat until the attrition rate address is isolated",
+                "6. Freeze at 0.0 to remove attrition"
+            ]
+        },
+        "veterancy_upgrade_cost": {
+            "type": "int32",
+            "cheat": "free_upgrades",
+            "steps": [
+                "1. Open the unit upgrade or veterancy screen",
+                "2. Note the displayed upgrade cost",
+                "3. Scan for that exact value (4 Bytes / int32)",
+                "4. Select another unit or upgrade tier with a different cost",
+                "5. Scan for changed value",
+                "6. Write 0 to make upgrades free"
             ]
         }
     }
