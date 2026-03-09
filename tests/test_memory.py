@@ -7,6 +7,7 @@ import os
 import sys
 import struct
 from pathlib import Path
+from typing import Optional
 from unittest.mock import Mock, MagicMock, patch, PropertyMock
 
 import pytest
@@ -68,7 +69,7 @@ class TestMemoryScanner:
             def get_readable_regions(self):
                 return [self._region]
 
-            def read_bytes(self, address: int, size: int) -> bytes | None:
+            def read_bytes(self, address: int, size: int) -> Optional[bytes]:
                 if address == self._region['address'] and size == self._region['size']:
                     return self._data
                 return None
@@ -191,9 +192,9 @@ class TestMemoryBackend:
                 return True
 
             def close(self) -> None:
-                return None
+                pass
 
-            def read_bytes(self, address: int, size: int) -> bytes | None:
+            def read_bytes(self, address: int, size: int) -> Optional[bytes]:
                 return self._data.get(address)
 
             def write_bytes(self, address: int, data: bytes) -> bool:

@@ -23,6 +23,14 @@ if TYPE_CHECKING:
 ScanValue = Union[int, float, str]
 
 
+class ScanHistoryEntry(TypedDict, total=False):
+    """Recorded metadata for previous scans."""
+    scan_type: str
+    value: ScanValue
+    value_type: str
+    result_count: int
+
+
 class FreezeStats(TypedDict, total=False):
     """Statistics returned by the memory freezer."""
     total_frozen: int
@@ -85,7 +93,7 @@ class MemoryScanner:
         self.editor: Optional[MemoryBackend] = None
         self.results: List[ScanResult] = []
         self.previous_values: Dict[int, ScanValue] = {}
-        self.scan_history: List[Dict[str, ScanValue]] = []
+        self.scan_history: List[ScanHistoryEntry] = []
         self._freezer: Optional["MemoryFreezer"] = None
         
     def attach(self) -> bool:
@@ -423,18 +431,11 @@ class MemoryScanner:
             # Read current value
             current_value = self.read_value(result.address, value_type)
             
-            if current_value is None:
-                continue
-            if isinstance(current_value, str):
-                if isinstance(result.value, str) and current_value > result.value:
-                    new_results.append(ScanResult(
-                        address=result.address,
-                        value=current_value,
-                        value_type=value_type,
-                        previous_value=result.value
-                    ))
-                continue
-            if isinstance(result.value, (int, float)) and current_value > result.value:
+            if (
+                isinstance(current_value, (int, float))
+                and isinstance(result.value, (int, float))
+                and current_value > result.value
+            ):
                 new_results.append(ScanResult(
                     address=result.address,
                     value=current_value,
@@ -469,18 +470,11 @@ class MemoryScanner:
             
             current_value = self.read_value(result.address, value_type)
             
-            if current_value is None:
-                continue
-            if isinstance(current_value, str):
-                if isinstance(result.value, str) and current_value < result.value:
-                    new_results.append(ScanResult(
-                        address=result.address,
-                        value=current_value,
-                        value_type=value_type,
-                        previous_value=result.value
-                    ))
-                continue
-            if isinstance(result.value, (int, float)) and current_value < result.value:
+            if (
+                isinstance(current_value, (int, float))
+                and isinstance(result.value, (int, float))
+                and current_value < result.value
+            ):
                 new_results.append(ScanResult(
                     address=result.address,
                     value=current_value,
@@ -560,11 +554,10 @@ class MemoryScanner:
         from .advanced import MemoryFreezer
         
         # Lazily create the freezer, wired to our backend
-        if self._freezer is None:
-            self._freezer = MemoryFreezer(editor=self.backend)
         freezer = self._freezer
         if freezer is None:
-            return False
+            freezer = MemoryFreezer(editor=self.backend)
+            self._freezer = freezer
         
         # Map ValueType enum to freezer type strings
         type_map = {
@@ -601,7 +594,13 @@ class MemoryScanner:
         """Get statistics about frozen addresses."""
         if self._freezer:
             return cast(FreezeStats, self._freezer.get_stats())
-        return {'total_frozen': 0, 'active_frozen': 0, 'is_running': False}
+        return {
+            'total_frozen': 0,
+            'active_frozen': 0,
+            'total_writes': 0,
+            'total_errors': 0,
+            'is_running': False,
+        }
     
     def get_results(self) -> List[ScanResult]:
         """
