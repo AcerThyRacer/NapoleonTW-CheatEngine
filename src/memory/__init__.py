@@ -14,6 +14,8 @@ from .advanced import (
     ChunkedScanner,
 )
 from .signatures import SignatureDatabase, SignatureEntry, ChainEntry, PatternMetadata
+from .speedhack import SpeedhackManager
+from .teleport import TeleportManager, Coordinates, TeleportTarget
 
 __all__ = [
     'ProcessManager',
@@ -35,4 +37,8 @@ __all__ = [
     'SignatureEntry',
     'ChainEntry',
     'PatternMetadata',
+    'SpeedhackManager',
+    'TeleportManager',
+    'Coordinates',
+    'TeleportTarget',
 ]
