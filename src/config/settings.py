@@ -48,6 +48,7 @@ class Config:
     ui_theme: str = "dark"
     auto_backup: bool = True
     debug_mode: bool = False
+    overlay_animation: str = "smoke_screen"
     
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary for JSON serialization."""
@@ -76,6 +77,9 @@ class Config:
         
         if 'debug_mode' in data:
             config.debug_mode = data['debug_mode']
+        
+        if 'overlay_animation' in data:
+            config.overlay_animation = data['overlay_animation']
         
         return config
 
@@ -123,6 +127,7 @@ class ConfigManager:
         'ui_theme': {'type': str, 'required': False},
         'auto_backup': {'type': bool, 'required': False},
         'debug_mode': {'type': bool, 'required': False},
+        'overlay_animation': {'type': str, 'required': False},
     }
 
     def __init__(self):
