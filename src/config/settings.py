@@ -51,6 +51,7 @@ class Config:
     setup_completed: bool = False
     overlay_preset: str = "balanced_command"
     overlay_animation: str = "smoke_screen"
+    effects_overlay: Dict[str, Any] = field(default_factory=dict)
     
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary for JSON serialization."""
@@ -88,6 +89,9 @@ class Config:
 
         if 'overlay_animation' in data:
             config.overlay_animation = data['overlay_animation']
+        
+        if 'effects_overlay' in data:
+            config.effects_overlay = data['effects_overlay']
         
         return config
 
@@ -138,6 +142,7 @@ class ConfigManager:
         'setup_completed': {'type': bool, 'required': False},
         'overlay_preset': {'type': str, 'required': False},
         'overlay_animation': {'type': str, 'required': False},
+        'effects_overlay': {'type': dict, 'required': False},
     }
 
     def __init__(self):
