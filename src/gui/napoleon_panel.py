@@ -1,6 +1,10 @@
 """
 Napoleon-Themed Control Panel with Animations
 A fully customizable, animated control panel for Napoleon Total War cheats.
+
+2026 edition — features parallax battle-scene background, motion-blur
+particle effects, live statistics dashboard, icon-only category navigation
+with tooltips, cheat search, and sound-effect integration.
 """
 
 import sys
@@ -11,11 +15,11 @@ from enum import Enum
 
 try:
     from PyQt6.QtWidgets import (
-        QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QPushButton, 
+        QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QPushButton,
         QLabel, QFrame, QGridLayout, QScrollArea, QSlider, QComboBox,
         QCheckBox, QGroupBox, QSpinBox, QDialog, QDialogButtonBox,
         QFormLayout, QSpacerItem, QSizePolicy, QGraphicsDropShadowEffect,
-        QProgressBar, QStackedWidget
+        QProgressBar, QStackedWidget, QLineEdit, QToolButton, QToolTip
     )
     from PyQt6.QtCore import (
         Qt, QTimer, QPropertyAnimation, QEasingCurve, QPoint, QSize,
@@ -39,6 +43,9 @@ from src.gui.setup_wizard import (
 )
 from src.trainer.overlay import OverlayAnimationStyle
 
+ASSETS_DIR = Path(__file__).resolve().parents[2] / "assets"
+ICONS_DIR = ASSETS_DIR / "icons"
+
 
 class CheatCategory(Enum):
     """Categories of cheats for organization."""
@@ -48,6 +55,29 @@ class CheatCategory(Enum):
     BATTLE = "battle"
     DIPLOMACY = "diplomacy"
     QUALITY_OF_LIFE = "quality"
+
+
+# Maps each category to (SVG filename, fallback emoji, tooltip text).
+CATEGORY_ICON_MAP: Dict[str, tuple] = {
+    CheatCategory.TREASURY.value: ("treasury.svg", "💰", "Treasury — Imperial finances"),
+    CheatCategory.MILITARY.value: ("sword.svg", "⚔️", "Military — Army commands"),
+    CheatCategory.CAMPAIGN.value: ("campaign.svg", "🏰", "Campaign — Strategic options"),
+    CheatCategory.BATTLE.value: ("shield.svg", "🛡️", "Battle — Combat modifiers"),
+    CheatCategory.DIPLOMACY.value: ("diplomacy.svg", "🤝", "Diplomacy — Relations"),
+    CheatCategory.QUALITY_OF_LIFE.value: ("quality.svg", "⚙️", "Quality of Life"),
+}
+
+
+def _load_category_icon(category_value: str, size: int = 32) -> QIcon:
+    """Load an SVG icon for *category_value*, falling back to an empty icon."""
+    info = CATEGORY_ICON_MAP.get(category_value)
+    if info is None:
+        return QIcon()
+    svg_name = info[0]
+    path = ICONS_DIR / svg_name
+    if path.exists():
+        return QIcon(str(path))
+    return QIcon()
 
 
 @dataclass
@@ -245,8 +275,11 @@ class NapoleonControlPanel(QMainWindow):
     """
     Main Napoleon-themed control panel window.
     Fully customizable with animations and all commands.
+
+    2026 edition with parallax battle-scene background, live stats dashboard,
+    icon-only category navigation, cheat search bar, and sound effects.
     """
-    
+
     def __init__(self, config_manager: Optional[ConfigManager] = None):
         super().__init__()
 
@@ -256,6 +289,15 @@ class NapoleonControlPanel(QMainWindow):
         if self.config_manager is not None:
             configured_theme = self.config_manager.config.ui_theme
         self.current_theme = normalize_panel_theme(configured_theme)
+
+        # Lazy-load sound player
+        try:
+            from src.gui.animated_components import SoundEffectPlayer
+            self._sound = SoundEffectPlayer(enabled=True)
+        except Exception:
+            self._sound = None
+
+        self._toggle_widgets: List[CheatToggleButton] = []
 
         self._init_commands()
         self._init_ui()
@@ -372,29 +414,84 @@ class NapoleonControlPanel(QMainWindow):
         self.setMinimumSize(800, 600)
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         self.resize(1400, 900)
-        
+
         # Central widget
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
-        
+
         main_layout = QVBoxLayout()
         main_layout.setSpacing(0)
         main_layout.setContentsMargins(0, 0, 0, 0)
         central_widget.setLayout(main_layout)
-        
+
+        # --- Parallax battle-scene background (behind everything) ---
+        try:
+            from src.gui.animated_components import ParallaxBattleScene
+            self._bg = ParallaxBattleScene(central_widget)
+            self._bg.lower()
+            self._bg.setGeometry(0, 0, self.width(), self.height())
+        except Exception:
+            self._bg = None
+
         # Header
         header = self._create_header()
         main_layout.addWidget(header)
-        
+
+        # --- Live Statistics Dashboard ---
+        try:
+            from src.gui.animated_components import LiveStatsDashboard
+            self.stats_dashboard = LiveStatsDashboard()
+        except Exception:
+            self.stats_dashboard = None
+        if self.stats_dashboard:
+            main_layout.addWidget(self.stats_dashboard)
+
+        # --- Search bar ---
+        search_frame = QFrame()
+        search_frame.setFixedHeight(44)
+        search_frame.setStyleSheet("""
+            QFrame {
+                background: rgba(26, 37, 47, 220);
+                border-bottom: 1px solid #d4af37;
+            }
+        """)
+        search_layout = QHBoxLayout(search_frame)
+        search_layout.setContentsMargins(16, 4, 16, 4)
+
+        search_icon = QLabel("🔍")
+        search_icon.setFixedWidth(24)
+        search_layout.addWidget(search_icon)
+
+        self._search_input = QLineEdit()
+        self._search_input.setPlaceholderText("Search cheats…")
+        self._search_input.setClearButtonEnabled(True)
+        self._search_input.setStyleSheet("""
+            QLineEdit {
+                background: rgba(44, 62, 80, 180);
+                border: 1px solid #d4af37;
+                border-radius: 6px;
+                color: #d4af37;
+                padding: 4px 10px;
+                font-size: 13px;
+            }
+            QLineEdit:focus {
+                border: 1px solid #f1c40f;
+            }
+        """)
+        self._search_input.textChanged.connect(self._on_search_changed)
+        search_layout.addWidget(self._search_input)
+
+        main_layout.addWidget(search_frame)
+
         # Category tabs
         self.category_tabs = self._create_category_tabs()
         main_layout.addWidget(self.category_tabs)
-        
+
         # Status bar
         self._create_status_bar()
     
     def _create_header(self) -> QWidget:
-        """Create Napoleon-themed header."""
+        """Create Napoleon-themed header with cannon smoke."""
         header = QFrame()
         header.setFixedHeight(120)
         header.setStyleSheet("""
@@ -404,119 +501,193 @@ class NapoleonControlPanel(QMainWindow):
                 border-bottom: 3px solid #d4af37;
             }
         """)
-        
+
         layout = QHBoxLayout()
         header.setLayout(layout)
-        
-        # Imperial eagle icon
-        eagle_label = QLabel("🦅")
-        eagle_label.setFont(QFont("Segoe UI Emoji", 48))
+
+        # Imperial eagle icon — try SVG first, fall back to emoji
+        eagle_path = ICONS_DIR / "eagle.svg"
+        if eagle_path.exists():
+            eagle_label = QLabel()
+            pm = QPixmap(str(eagle_path)).scaled(
+                56, 56, Qt.AspectRatioMode.KeepAspectRatio,
+                Qt.TransformationMode.SmoothTransformation,
+            )
+            eagle_label.setPixmap(pm)
+        else:
+            eagle_label = QLabel("🦅")
+            eagle_label.setFont(QFont("Segoe UI Emoji", 48))
         layout.addWidget(eagle_label)
-        
+
         # Title
         title_layout = QVBoxLayout()
-        
+
         title = QLabel("NAPOLEON'S COMMAND PANEL")
         title.setFont(QFont("Georgia", 28, QFont.Weight.Bold))
         title.setStyleSheet("color: #d4af37;")
         title.setAlignment(Qt.AlignmentFlag.AlignCenter)
         title_layout.addWidget(title)
-        
+
         subtitle = QLabel("Total War Control System")
         subtitle.setFont(QFont("Georgia", 14))
         subtitle.setStyleSheet("color: #95a5a6;")
         subtitle.setAlignment(Qt.AlignmentFlag.AlignCenter)
         title_layout.addWidget(subtitle)
-        
+
         layout.addLayout(title_layout)
-        
-        # Crown icon
-        crown_label = QLabel("👑")
-        crown_label.setFont(QFont("Segoe UI Emoji", 48))
+
+        # Crown icon — try SVG first
+        crown_path = ICONS_DIR / "crown.svg"
+        if crown_path.exists():
+            crown_label = QLabel()
+            pm = QPixmap(str(crown_path)).scaled(
+                56, 56, Qt.AspectRatioMode.KeepAspectRatio,
+                Qt.TransformationMode.SmoothTransformation,
+            )
+            crown_label.setPixmap(pm)
+        else:
+            crown_label = QLabel("👑")
+            crown_label.setFont(QFont("Segoe UI Emoji", 48))
         layout.addWidget(crown_label)
-        
+
+        # Overlay cannon smoke on the header
+        try:
+            from src.gui.animated_components import CannonSmokeSystem
+            self._header_smoke = CannonSmokeSystem(header)
+            self._header_smoke.setGeometry(0, 0, 1400, 120)
+            self._header_smoke.start_emitting()
+            self._header_smoke.raise_()
+        except Exception:
+            self._header_smoke = None
+
         return header
     
     def _create_category_tabs(self) -> QStackedWidget:
-        """Create category navigation tabs."""
+        """Create category navigation tabs with icon-only buttons and tooltips."""
         self.stacked_widget = QStackedWidget()
-        
+
         # Tab buttons
         tab_buttons = QWidget()
         tab_layout = QHBoxLayout()
+        tab_layout.setSpacing(6)
         tab_buttons.setLayout(tab_layout)
-        
+
         categories = [
-            ("💰", "Treasury", CheatCategory.TREASURY),
-            ("⚔️", "Military", CheatCategory.MILITARY),
-            ("🏰", "Campaign", CheatCategory.CAMPAIGN),
-            ("🛡️", "Battle", CheatCategory.BATTLE),
-            ("🤝", "Diplomacy", CheatCategory.DIPLOMACY),
-            ("⚙️", "Settings", None),
+            (CheatCategory.TREASURY,),
+            (CheatCategory.MILITARY,),
+            (CheatCategory.CAMPAIGN,),
+            (CheatCategory.BATTLE,),
+            (CheatCategory.DIPLOMACY,),
         ]
-        
-        for icon, name, category in categories:
-            btn = QPushButton(f"{icon} {name}")
+
+        self._tab_buttons: List[QToolButton] = []
+        for (category,) in categories:
+            info = CATEGORY_ICON_MAP.get(category.value, ("", "❓", category.value))
+            svg_file, fallback_emoji, tooltip = info
+
+            btn = QToolButton()
             btn.setCheckable(True)
-            btn.setFont(QFont("Georgia", 12, QFont.Weight.Bold))
+            btn.setToolTip(tooltip)
+            btn.setFixedSize(60, 60)
+            btn.setCursor(Qt.CursorShape.PointingHandCursor)
+
+            icon = _load_category_icon(category.value)
+            if not icon.isNull():
+                btn.setIcon(icon)
+                btn.setIconSize(QSize(36, 36))
+            else:
+                btn.setText(fallback_emoji)
+                btn.setFont(QFont("Segoe UI Emoji", 22))
+
             btn.setStyleSheet("""
-                QPushButton {
+                QToolButton {
                     background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
                         stop:0 #34495e, stop:1 #2c3e50);
                     border: 2px solid #d4af37;
-                    border-radius: 8px;
-                    color: #d4af37;
-                    padding: 15px 25px;
-                    min-width: 150px;
+                    border-radius: 10px;
                 }
-                QPushButton:hover {
+                QToolButton:hover {
                     background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
                         stop:0 #3d566e, stop:1 #34495e);
                     border: 2px solid #f1c40f;
                 }
-                QPushButton:checked {
+                QToolButton:checked {
                     background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
                         stop:0 #d4af37, stop:1 #f1c40f);
-                    color: #1a252f;
                 }
             """)
-            
-            if category:
-                btn.clicked.connect(
-                    lambda checked, cat=category: self._switch_category(cat)
-                )
-            else:
-                btn.clicked.connect(
-                    lambda checked: self._switch_category(None)
-                )
-            
+
+            btn.clicked.connect(
+                lambda checked, cat=category: self._switch_category(cat)
+            )
             tab_layout.addWidget(btn)
-        
+            self._tab_buttons.append(btn)
+
+        # Settings button (gear icon)
+        settings_btn = QToolButton()
+        settings_btn.setCheckable(True)
+        settings_btn.setToolTip("Settings — Theme, animations, presets")
+        settings_btn.setFixedSize(60, 60)
+        settings_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+
+        gear_icon_path = ICONS_DIR / "settings.svg"
+        if gear_icon_path.exists():
+            settings_btn.setIcon(QIcon(str(gear_icon_path)))
+            settings_btn.setIconSize(QSize(36, 36))
+        else:
+            settings_btn.setText("⚙️")
+            settings_btn.setFont(QFont("Segoe UI Emoji", 22))
+
+        settings_btn.setStyleSheet("""
+            QToolButton {
+                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                    stop:0 #34495e, stop:1 #2c3e50);
+                border: 2px solid #d4af37;
+                border-radius: 10px;
+            }
+            QToolButton:hover {
+                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                    stop:0 #3d566e, stop:1 #34495e);
+                border: 2px solid #f1c40f;
+            }
+            QToolButton:checked {
+                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                    stop:0 #d4af37, stop:1 #f1c40f);
+            }
+        """)
+        settings_btn.clicked.connect(
+            lambda checked: self._switch_category(None)
+        )
+        tab_layout.addWidget(settings_btn)
+        self._tab_buttons.append(settings_btn)
+
+        tab_layout.addStretch()
+
         # Content area
         content_widget = QWidget()
         content_layout = QVBoxLayout()
         content_widget.setLayout(content_layout)
-        
+
         # Create pages for each category
         self.category_pages = {}
         for category in CheatCategory:
             page = self._create_category_page(category)
             self.stacked_widget.addWidget(page)
             self.category_pages[category] = page
-        
+
         # Settings page
         settings_page = self._create_settings_page()
         self.stacked_widget.addWidget(settings_page)
-        
+
         content_layout.addWidget(self.stacked_widget)
-        
+
         # Container
         container = QWidget()
         container_layout = QVBoxLayout()
         container.setLayout(container_layout)
         container_layout.addWidget(tab_buttons)
         container_layout.addWidget(content_widget)
-        
+
         return container
     
     def _create_category_page(self, category: CheatCategory) -> QWidget:
@@ -526,27 +697,28 @@ class NapoleonControlPanel(QMainWindow):
         layout.setSpacing(15)
         layout.setContentsMargins(20, 20, 20, 20)
         page.setLayout(layout)
-        
+
         # Get commands for this category
         commands = [c for c in self.commands if c.category == category]
-        
+
         # Add cheat toggles
         row = 0
         col = 0
         for i, command in enumerate(commands):
             toggle = CheatToggleButton(command)
             toggle.toggled.connect(self._on_cheat_toggled)
-            
+            self._toggle_widgets.append(toggle)
+
             layout.addWidget(toggle, row, col)
-            
+
             col += 1
             if col >= 2:  # 2 columns
                 col = 0
                 row += 1
-        
+
         # Add stretch to push content to top
         layout.setRowStretch(row + 1, 1)
-        
+
         return page
     
     def _create_settings_page(self) -> QWidget:
@@ -639,7 +811,16 @@ class NapoleonControlPanel(QMainWindow):
     def _on_cheat_toggled(self, cheat_id: str, state: bool):
         """Handle cheat toggle."""
         self.cheat_states[cheat_id] = state
-        
+
+        # Play sound effect
+        if self._sound:
+            self._sound.play('activate' if state else 'deactivate')
+
+        # Update live stats
+        if self.stats_dashboard:
+            active = sum(1 for v in self.cheat_states.values() if v)
+            self.stats_dashboard.set_army_count(active)
+
         # Update status bar
         if state:
             command = next(c for c in self.commands if c.id == cheat_id)
@@ -651,12 +832,20 @@ class NapoleonControlPanel(QMainWindow):
         """Activate all cheats."""
         for command in self.commands:
             self.cheat_states[command.id] = True
+        if self._sound:
+            self._sound.play('victory')
+        if self.stats_dashboard:
+            self.stats_dashboard.set_army_count(len(self.commands))
         self.statusBar().showMessage("🎉 All cheats activated! Vive l'Empereur!", 3000)
-    
+
     def _deactivate_all_cheats(self):
         """Deactivate all cheats."""
         for command in self.commands:
             self.cheat_states[command.id] = False
+        if self._sound:
+            self._sound.play('deactivate')
+        if self.stats_dashboard:
+            self.stats_dashboard.set_army_count(0)
         self.statusBar().showMessage("All cheats deactivated", 2000)
     
     def _on_theme_changed(self, theme_name: str):
@@ -753,6 +942,28 @@ class NapoleonControlPanel(QMainWindow):
                 padding: 5px;
             }
         """)
+
+    # ── Search & resize helpers ─────────────────────────────
+
+    def _on_search_changed(self, text: str) -> None:
+        """Filter visible cheat toggles based on the search query."""
+        query = text.strip().lower()
+        for toggle in self._toggle_widgets:
+            if not query:
+                toggle.setVisible(True)
+            else:
+                match = (
+                    query in toggle.command.name.lower()
+                    or query in toggle.command.description.lower()
+                    or query in toggle.command.id.lower()
+                )
+                toggle.setVisible(match)
+
+    def resizeEvent(self, event) -> None:  # noqa: N802
+        """Keep the parallax background sized to the window."""
+        super().resizeEvent(event)
+        if getattr(self, "_bg", None) is not None:
+            self._bg.setGeometry(0, 0, self.width(), self.height())
 
 
 def main():
