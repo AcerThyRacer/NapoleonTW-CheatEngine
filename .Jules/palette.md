@@ -1,0 +1,3 @@
+## 2024-05-16 - Silent errors and disabled states
+**Learning:** Silent console prints for errors in a GUI application create a confusing user experience because actions appear to do nothing. Additionally, users get confused when buttons are enabled but functionally useless (like a 'Scan' button when no process is attached). Combining disabled states with tooltips explaining *why* the button is disabled, and showing themed visual dialogs for errors, greatly improves clarity.
+**Action:** Always provide visual feedback for errors/info in GUI apps using tools like `QMessageBox`. Disable buttons that cannot currently be used and add tooltips explaining the prerequisite for enabling them.
