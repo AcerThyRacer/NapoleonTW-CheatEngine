@@ -49,6 +49,7 @@ class Config:
     auto_backup: bool = True
     debug_mode: bool = False
     overlay_animation: str = "smoke_screen"
+    effects_overlay: Dict[str, Any] = field(default_factory=dict)
     
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary for JSON serialization."""
@@ -80,6 +81,9 @@ class Config:
         
         if 'overlay_animation' in data:
             config.overlay_animation = data['overlay_animation']
+        
+        if 'effects_overlay' in data:
+            config.effects_overlay = data['effects_overlay']
         
         return config
 
@@ -128,6 +132,7 @@ class ConfigManager:
         'auto_backup': {'type': bool, 'required': False},
         'debug_mode': {'type': bool, 'required': False},
         'overlay_animation': {'type': str, 'required': False},
+        'effects_overlay': {'type': dict, 'required': False},
     }
 
     def __init__(self):
