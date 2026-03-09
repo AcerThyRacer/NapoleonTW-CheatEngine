@@ -571,16 +571,29 @@ class InteractiveCLI(cmd.Cmd):
         """Show detected game paths."""
         from src.utils.platform import (
             get_platform, get_steam_path, get_napoleon_install_path,
-            get_save_game_directory, get_scripts_directory, get_game_data_path, is_proton
+            get_save_game_directory, get_scripts_directory, get_game_data_path,
+            is_proton, check_memory_access_permissions, detect_display_server,
+            get_hotkey_compatibility_warning
         )
-        
+        permissions = check_memory_access_permissions()
+        hotkey_warning = get_hotkey_compatibility_warning()
+
         print(f"\n  Platform:     {get_platform()}")
         print(f"  Proton:       {is_proton()}")
+        print(f"  Display:      {detect_display_server()}")
         print(f"  Steam:        {get_steam_path() or 'Not found'}")
         print(f"  Game Install: {get_napoleon_install_path() or 'Not found'}")
         print(f"  Save Games:   {get_save_game_directory() or 'Not found'}")
         print(f"  Scripts:      {get_scripts_directory() or 'Not found'}")
         print(f"  Game Data:    {get_game_data_path() or 'Not found'}")
+        if get_platform() == 'linux':
+            print(f"  Mem Read:     {permissions['can_read']}")
+            print(f"  Mem Write:    {permissions['can_write']}")
+            print(f"  ptrace_scope: {permissions['ptrace_scope'] if permissions['ptrace_scope'] is not None else 'unknown'}")
+            for recommendation in permissions['recommendations']:
+                print(f"  Note:         {recommendation}")
+            if hotkey_warning:
+                print(f"  Warning:      {hotkey_warning}")
         print()
     
     # ── Utility Commands ────────────────────────────────────────

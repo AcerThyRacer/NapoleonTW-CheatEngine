@@ -43,6 +43,85 @@ class TestPlatform:
         result = normalize_path("/some/path")
         assert isinstance(result, Path)
 
+    def test_detect_display_server_wayland(self):
+        from src.utils.platform import detect_display_server
+
+        with patch('src.utils.platform.get_platform', return_value='linux'), \
+             patch.dict(os.environ, {'XDG_SESSION_TYPE': 'wayland'}, clear=False):
+            assert detect_display_server() == 'wayland'
+
+    def test_detect_display_server_x11(self):
+        from src.utils.platform import detect_display_server
+
+        with patch('src.utils.platform.get_platform', return_value='linux'), \
+             patch.dict(os.environ, {'XDG_SESSION_TYPE': 'x11'}, clear=False):
+            assert detect_display_server() == 'x11'
+
+    def test_get_hotkey_compatibility_warning_on_wayland(self):
+        from src.utils.platform import get_hotkey_compatibility_warning
+
+        with patch('src.utils.platform.detect_display_server', return_value='wayland'):
+            assert "Wayland detected" in get_hotkey_compatibility_warning()
+
+    def test_get_steam_path_supports_flatpak_layout(self, tmp_path):
+        from src.utils.platform import get_steam_path
+
+        steam_path = tmp_path / '.var' / 'app' / 'com.valvesoftware.Steam' / '.local' / 'share' / 'Steam'
+        steam_path.mkdir(parents=True)
+
+        with patch('src.utils.platform.get_platform', return_value='linux'), \
+             patch('src.utils.platform.Path.home', return_value=tmp_path):
+            assert get_steam_path() == steam_path
+
+    def test_get_napoleon_install_path_supports_linux_steam_name(self, tmp_path):
+        from src.utils.platform import get_napoleon_install_path
+
+        install_path = tmp_path / '.local' / 'share' / 'Steam' / 'steamapps' / 'common' / 'Napoleon Total War'
+        install_path.mkdir(parents=True)
+
+        with patch('src.utils.platform.get_platform', return_value='linux'), \
+             patch('src.utils.platform.Path.home', return_value=tmp_path):
+            assert get_napoleon_install_path() == install_path
+
+    def test_check_memory_access_permissions_linux(self):
+        from src.utils.platform import check_memory_access_permissions
+
+        def fake_open(path, mode='r', *args, **kwargs):
+            if path == '/proc/sys/kernel/yama/ptrace_scope':
+                return MagicMock(__enter__=lambda self: self, __exit__=lambda *exc: None, read=lambda: '1')
+            if path.endswith('/mem') and mode == 'rb':
+                return MagicMock(__enter__=lambda self: self, __exit__=lambda *exc: None)
+            raise FileNotFoundError(path)
+
+        with patch('src.utils.platform.get_platform', return_value='linux'), \
+             patch('src.utils.platform.os.geteuid', return_value=0), \
+             patch('builtins.open', side_effect=fake_open):
+            result = check_memory_access_permissions()
+
+        assert result['can_read'] is True
+        assert result['can_write'] is True
+        assert result['ptrace_scope'] == 1
+        assert result['recommendations']
+
+    def test_check_memory_access_permissions_permission_denied(self):
+        from src.utils.platform import check_memory_access_permissions
+
+        def fake_open(path, mode='r', *args, **kwargs):
+            if path == '/proc/sys/kernel/yama/ptrace_scope':
+                raise FileNotFoundError(path)
+            if path.endswith('/mem'):
+                raise PermissionError(path)
+            raise FileNotFoundError(path)
+
+        with patch('src.utils.platform.get_platform', return_value='linux'), \
+             patch('src.utils.platform.os.geteuid', return_value=1000), \
+             patch('builtins.open', side_effect=fake_open):
+            result = check_memory_access_permissions()
+
+        assert result['can_read'] is False
+        assert result['can_write'] is False
+        assert any('sudo' in note or 'CAP_SYS_PTRACE' in note for note in result['recommendations'])
+
 
 class TestExceptions:
     """Tests for the exception hierarchy."""

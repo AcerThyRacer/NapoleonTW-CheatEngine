@@ -2,6 +2,18 @@
 
 Automated one-liner installation scripts with comprehensive testing for Total War: Napoleon mods on Windows and Linux.
 
+## Linux Cheat Engine Support (2026)
+
+The Python cheat engine in `src/` now has Linux-specific runtime guidance and backend selection:
+
+- **Native Linux / Feral port** prefers the direct `ProcMemBackend` first.
+- **Proton / Wine** keeps the Windows-oriented memory backends first, with `/proc/<pid>/mem` fallback.
+- **Steam and Flatpak Steam layouts** are both recognized by the Linux path helpers.
+- **Wayland sessions** can launch the app and scan memory, but trainer hotkeys may be limited; **X11/XWayland** is still the most reliable option for global hotkeys.
+- **Memory writes on Linux** often require `sudo`, `CAP_SYS_PTRACE`, or a temporary `ptrace_scope` adjustment.
+
+For full setup instructions, see [LINUX_SETUP.md](LINUX_SETUP.md).
+
 ## ⚠️ Important: Bug Fixes Applied (v1.0.1)
 
 **Fixed Issues:**

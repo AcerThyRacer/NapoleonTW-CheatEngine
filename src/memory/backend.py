@@ -9,12 +9,13 @@ Provides a unified API over multiple memory editing libraries:
 This isolates the rest of the codebase from library-specific API differences.
 """
 
-import struct
 import logging
 import os
 import sys
-from typing import Optional, List, Dict, Any
+from typing import Optional, List, Dict, Type
 from abc import ABC, abstractmethod
+
+from src.utils.platform import get_platform, is_proton
 
 logger = logging.getLogger('napoleon.memory.backend')
 
@@ -319,11 +320,7 @@ def create_backend(pid: int) -> Optional[MemoryBackend]:
     Create the best available memory backend for the given PID.
     Tries backends in order of preference.
     """
-    backends = [
-        PymemBackend,
-        PyMemoryEditorBackend,
-        ProcMemBackend,
-    ]
+    backends = get_backend_candidates()
     
     for backend_cls in backends:
         backend = backend_cls()
@@ -334,3 +331,36 @@ def create_backend(pid: int) -> Optional[MemoryBackend]:
     
     logger.error("No memory backend available for PID %d", pid)
     return None
+
+
+def get_best_backend() -> Type[MemoryBackend]:
+    """Return the preferred backend class for the current platform."""
+    return get_backend_candidates()[0]
+
+
+def get_backend_candidates() -> List[Type[MemoryBackend]]:
+    """
+    Return backend classes in priority order for the current runtime.
+
+    Native Linux should prefer direct /proc access first because it is the
+    most reliable option and does not depend on third-party memory libraries.
+    Proton/Wine still prefers the Windows-oriented backends first.
+    """
+    if get_platform() == 'linux':
+        if is_proton():
+            return [
+                PymemBackend,
+                PyMemoryEditorBackend,
+                ProcMemBackend,
+            ]
+        return [
+            ProcMemBackend,
+            PymemBackend,
+            PyMemoryEditorBackend,
+        ]
+
+    return [
+        PymemBackend,
+        PyMemoryEditorBackend,
+        ProcMemBackend,
+    ]

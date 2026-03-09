@@ -151,6 +151,39 @@ class TestMemoryAdvanced:
 class TestMemoryBackend:
     """Tests for memory backend helpers."""
 
+    def test_get_best_backend_prefers_procmem_on_native_linux(self):
+        from src.memory.backend import ProcMemBackend, get_best_backend
+
+        with patch('src.memory.backend.get_platform', return_value='linux'), \
+             patch('src.memory.backend.is_proton', return_value=False):
+            assert get_best_backend() is ProcMemBackend
+
+    def test_get_best_backend_prefers_pymem_on_proton(self):
+        from src.memory.backend import PymemBackend, get_best_backend
+
+        with patch('src.memory.backend.get_platform', return_value='linux'), \
+             patch('src.memory.backend.is_proton', return_value=True):
+            assert get_best_backend() is PymemBackend
+
+    def test_create_backend_uses_linux_priority_order(self):
+        from src.memory.backend import create_backend, ProcMemBackend
+
+        calls = []
+
+        def procmem_open(self, pid):
+            calls.append(('ProcMemBackend', pid))
+            return True
+
+        with patch('src.memory.backend.get_platform', return_value='linux'), \
+             patch('src.memory.backend.is_proton', return_value=False), \
+             patch('src.memory.backend.ProcMemBackend.open', new=procmem_open), \
+             patch('src.memory.backend.PymemBackend.open', side_effect=AssertionError("Pymem should not be tried first")), \
+             patch('src.memory.backend.PyMemoryEditorBackend.open', side_effect=AssertionError("PyMemoryEditor should not be tried first")):
+            backend = create_backend(4242)
+
+        assert isinstance(backend, ProcMemBackend)
+        assert calls == [('ProcMemBackend', 4242)]
+
     def test_procmem_regions_skip_malformed_lines(self):
         from src.memory.backend import ProcMemBackend
 

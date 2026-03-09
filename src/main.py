@@ -101,8 +101,12 @@ def launch_trainer():
         from src.memory import ProcessManager, MemoryScanner, CheatManager
         from src.trainer import HotkeyManager, TrainerCheats
         from src.utils.game_state import GameStateMonitor
+        from src.utils.platform import get_hotkey_compatibility_warning
         
         print("\nInitializing trainer...")
+        hotkey_warning = get_hotkey_compatibility_warning()
+        if hotkey_warning:
+            print(f"\n{hotkey_warning}")
         
         process_manager = ProcessManager()
         scanner = MemoryScanner(process_manager)

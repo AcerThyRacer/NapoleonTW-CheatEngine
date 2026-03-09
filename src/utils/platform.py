@@ -8,7 +8,7 @@ import sys
 import platform
 import logging
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Dict, Any
 
 logger = logging.getLogger('napoleon.utils.platform')
 
@@ -84,7 +84,10 @@ def get_steam_path() -> Optional[Path]:
         # Common Linux Steam paths
         linux_paths = [
             Path.home() / '.steam' / 'steam',
+            Path.home() / '.steam' / 'steamapps',
             Path.home() / '.local' / 'share' / 'Steam',
+            Path.home() / '.var' / 'app' / 'com.valvesoftware.Steam' / '.local' / 'share' / 'Steam',
+            Path('/run/host/home') / os.environ.get('USER', '') / '.local' / 'share' / 'Steam',
             Path('/usr/games/steam'),
         ]
         
@@ -128,7 +131,9 @@ def get_napoleon_install_path() -> Optional[Path]:
         # Steam Linux version
         linux_paths = [
             steam_path / 'steamapps' / 'common' / 'Total War NAPOLEON',
+            steam_path / 'steamapps' / 'common' / 'Napoleon Total War',
             Path.home() / '.steam' / 'steamapps' / 'common' / 'Total War NAPOLEON',
+            Path.home() / '.steam' / 'steamapps' / 'common' / 'Napoleon Total War',
         ]
         
         for path in linux_paths:
@@ -280,6 +285,74 @@ def normalize_path(path: str) -> Path:
             path = path.replace('\\', '/')
     
     return Path(path)
+
+
+def check_memory_access_permissions() -> Dict[str, Any]:
+    """Check Linux memory access prerequisites for the current user."""
+    result = {
+        'can_read': False,
+        'can_write': False,
+        'is_root': hasattr(os, 'geteuid') and os.geteuid() == 0,
+        'ptrace_scope': None,
+        'recommendations': [],
+    }
+
+    if get_platform() != 'linux':
+        return result
+
+    try:
+        with open('/proc/sys/kernel/yama/ptrace_scope', 'r') as handle:
+            ptrace_scope = int(handle.read().strip())
+            result['ptrace_scope'] = ptrace_scope
+            if ptrace_scope > 0:
+                result['recommendations'].append(
+                    "Linux ptrace restrictions are enabled; use sudo, CAP_SYS_PTRACE, or temporarily set kernel.yama.ptrace_scope=0 on a dedicated gaming system."
+                )
+    except (FileNotFoundError, PermissionError, ValueError):
+        pass
+
+    mem_path = f'/proc/{os.getpid()}/mem'
+    try:
+        with open(mem_path, 'rb'):
+            result['can_read'] = True
+    except PermissionError:
+        result['recommendations'].append(
+            "Current user cannot read /proc/<pid>/mem; run as the same user as the game, or use sudo/CAP_SYS_PTRACE."
+        )
+
+    result['can_write'] = result['can_read'] and result['is_root']
+    if not result['can_write']:
+        result['recommendations'].append(
+            "Write access usually requires sudo or CAP_SYS_PTRACE on Linux."
+        )
+
+    return result
+
+
+def detect_display_server() -> str:
+    """Detect the active Linux display server."""
+    if get_platform() != 'linux':
+        return 'N/A'
+
+    session_type = os.environ.get('XDG_SESSION_TYPE', '').lower()
+    wayland_display = os.environ.get('WAYLAND_DISPLAY', '')
+    display = os.environ.get('DISPLAY', '')
+
+    if 'wayland' in session_type or wayland_display:
+        return 'wayland'
+    if 'x11' in session_type or display:
+        return 'x11'
+    return 'unknown'
+
+
+def get_hotkey_compatibility_warning() -> Optional[str]:
+    """Return a warning when the current Linux session may block global hotkeys."""
+    if detect_display_server() == 'wayland':
+        return (
+            "⚠️ Wayland detected: global hotkeys may be limited. "
+            "Use an X11 session or XWayland for the most reliable trainer hotkeys."
+        )
+    return None
 
 
 def create_backup(file_path: Path, backup_dir: Optional[Path] = None) -> Path:
