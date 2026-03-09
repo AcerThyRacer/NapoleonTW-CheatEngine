@@ -40,6 +40,10 @@ class OverlayAnimationStyle(Enum):
     GRAPESHOT = "grapeshot"
     OLD_GUARD = "old_guard"
     RUSSIAN_WINTER = "russian_winter"
+    LIGHTNING_STRIKE = "lightning_strike"
+    FLAG_WAVE = "flag_wave"
+    CANNONBALL_TRAIL = "cannonball_trail"
+    MORALE_BOOST = "morale_boost"
 
     @classmethod
     def display_names(cls) -> Dict[str, str]:
@@ -58,6 +62,10 @@ class OverlayAnimationStyle(Enum):
             cls.GRAPESHOT.value: "💣 Grapeshot — Rapid multi-bounce",
             cls.OLD_GUARD.value: "🛡️ Old Guard — Slow majestic fade-slide",
             cls.RUSSIAN_WINTER.value: "❄️ Russian Winter — Drift down with fade",
+            cls.LIGHTNING_STRIKE.value: "⚡ Lightning Strike — Quick flash",
+            cls.FLAG_WAVE.value: "🇫🇷 Flag Wave — French tricolor wave",
+            cls.CANNONBALL_TRAIL.value: "💫 Cannonball Trail — Arc with trail",
+            cls.MORALE_BOOST.value: "💚 Morale Boost — Pulsing green aura",
         }
 
     @classmethod
@@ -204,6 +212,14 @@ class OverlayAnimationManager:
                 self._open_old_guard, self._close_old_guard),
             OverlayAnimationStyle.RUSSIAN_WINTER: (
                 self._open_russian_winter, self._close_russian_winter),
+            OverlayAnimationStyle.LIGHTNING_STRIKE: (
+                self._open_lightning_strike, self._close_lightning_strike),
+            OverlayAnimationStyle.FLAG_WAVE: (
+                self._open_flag_wave, self._close_flag_wave),
+            OverlayAnimationStyle.CANNONBALL_TRAIL: (
+                self._open_cannonball_trail, self._close_cannonball_trail),
+            OverlayAnimationStyle.MORALE_BOOST: (
+                self._open_morale_boost, self._close_morale_boost),
         }
         pair = handlers.get(self.style, (self._open_smoke_screen, self._close_smoke_screen))
         return pair[0] if opening else pair[1]
@@ -530,6 +546,180 @@ class OverlayAnimationManager:
                                                      curve=QEasingCurve.Type.InSine))
         group.addAnimation(self._make_opacity_anim(effect, 1.0, 0.0, duration=600,
                                                     curve=QEasingCurve.Type.InOutQuad))
+        self._run_close(widget, group, callback)
+
+    # ── 13. Lightning Strike — quick flash ────────────────────
+
+    def _open_lightning_strike(self, widget, target):
+        widget.setGeometry(target)
+        effect = self._ensure_opacity_effect(widget)
+        effect.setOpacity(0.0)
+        seq = QSequentialAnimationGroup()
+        # Flash to full opacity
+        seq.addAnimation(self._make_opacity_anim(effect, 0.0, 1.0, duration=50,
+                                                  curve=QEasingCurve.Type.Linear))
+        # Motion blur micro-shifts
+        left = QRect(target.x() - 8, target.y(), target.width(), target.height())
+        right = QRect(target.x() + 8, target.y(), target.width(), target.height())
+        seq.addAnimation(self._make_geometry_anim(widget, target, left, duration=30,
+                                                   curve=QEasingCurve.Type.Linear))
+        seq.addAnimation(self._make_geometry_anim(widget, left, right, duration=30,
+                                                   curve=QEasingCurve.Type.Linear))
+        seq.addAnimation(self._make_geometry_anim(widget, right, target, duration=30,
+                                                   curve=QEasingCurve.Type.Linear))
+        # Settle at target
+        seq.addAnimation(self._make_geometry_anim(widget, target, target, duration=60,
+                                                   curve=QEasingCurve.Type.OutCubic))
+        group = QParallelAnimationGroup()
+        group.addAnimation(seq)
+        self._run_open(widget, group)
+
+    def _close_lightning_strike(self, widget, callback=None):
+        rect = widget.geometry()
+        effect = self._ensure_opacity_effect(widget)
+        seq = QSequentialAnimationGroup()
+        # Quick shake for motion blur
+        left = QRect(rect.x() - 5, rect.y(), rect.width(), rect.height())
+        right = QRect(rect.x() + 5, rect.y(), rect.width(), rect.height())
+        seq.addAnimation(self._make_geometry_anim(widget, rect, left, duration=25,
+                                                   curve=QEasingCurve.Type.Linear))
+        seq.addAnimation(self._make_geometry_anim(widget, left, right, duration=25,
+                                                   curve=QEasingCurve.Type.Linear))
+        seq.addAnimation(self._make_geometry_anim(widget, right, rect, duration=25,
+                                                   curve=QEasingCurve.Type.Linear))
+        # Instant fade out
+        seq.addAnimation(self._make_opacity_anim(effect, 1.0, 0.0, duration=80,
+                                                  curve=QEasingCurve.Type.Linear))
+        group = QParallelAnimationGroup()
+        group.addAnimation(seq)
+        self._run_close(widget, group, callback)
+
+    # ── 14. Flag Wave — French tricolor wave ──────────────────
+
+    def _open_flag_wave(self, widget, target):
+        start = QRect(target.x() + 60, target.y(), target.width(), target.height())
+        widget.setGeometry(start)
+        effect = self._ensure_opacity_effect(widget)
+        effect.setOpacity(0.0)
+        seq_geo = QSequentialAnimationGroup()
+        # Wave motion: swing left, then right, then settle
+        wave_left = QRect(target.x() - 30, target.y(), target.width(), target.height())
+        wave_right = QRect(target.x() + 20, target.y(), target.width(), target.height())
+        seq_geo.addAnimation(self._make_geometry_anim(widget, start, wave_left, duration=160,
+                                                       curve=QEasingCurve.Type.InOutSine))
+        seq_geo.addAnimation(self._make_geometry_anim(widget, wave_left, wave_right, duration=160,
+                                                       curve=QEasingCurve.Type.InOutSine))
+        seq_geo.addAnimation(self._make_geometry_anim(widget, wave_right, target, duration=180,
+                                                       curve=QEasingCurve.Type.OutSine))
+        group = QParallelAnimationGroup()
+        group.addAnimation(seq_geo)
+        group.addAnimation(self._make_opacity_anim(effect, 0.0, 1.0, duration=500,
+                                                    curve=QEasingCurve.Type.InOutQuad))
+        self._run_open(widget, group)
+
+    def _close_flag_wave(self, widget, callback=None):
+        rect = widget.geometry()
+        effect = self._ensure_opacity_effect(widget)
+        seq_geo = QSequentialAnimationGroup()
+        # Wave out: right, then left, then off-screen right
+        wave_right = QRect(rect.x() + 30, rect.y(), rect.width(), rect.height())
+        wave_left = QRect(rect.x() - 20, rect.y(), rect.width(), rect.height())
+        offscreen = QRect(rect.x() + 100, rect.y(), rect.width(), rect.height())
+        seq_geo.addAnimation(self._make_geometry_anim(widget, rect, wave_right, duration=140,
+                                                       curve=QEasingCurve.Type.InOutSine))
+        seq_geo.addAnimation(self._make_geometry_anim(widget, wave_right, wave_left, duration=140,
+                                                       curve=QEasingCurve.Type.InOutSine))
+        seq_geo.addAnimation(self._make_geometry_anim(widget, wave_left, offscreen, duration=220,
+                                                       curve=QEasingCurve.Type.InSine))
+        group = QParallelAnimationGroup()
+        group.addAnimation(seq_geo)
+        group.addAnimation(self._make_opacity_anim(effect, 1.0, 0.0, duration=500,
+                                                    curve=QEasingCurve.Type.InOutQuad))
+        self._run_close(widget, group, callback)
+
+    # ── 15. Cannonball Trail — arc with trail ─────────────────
+
+    def _open_cannonball_trail(self, widget, target):
+        start = QRect(target.x() - 300, target.y() - 200, target.width(), target.height())
+        widget.setGeometry(start)
+        effect = self._ensure_opacity_effect(widget)
+        effect.setOpacity(0.3)
+        seq_geo = QSequentialAnimationGroup()
+        # Arc down to target
+        seq_geo.addAnimation(self._make_geometry_anim(widget, start, target, duration=350,
+                                                       curve=QEasingCurve.Type.OutQuad))
+        # Bounce at end for impact
+        seq_geo.addAnimation(self._make_geometry_anim(widget, target, target, duration=100,
+                                                       curve=QEasingCurve.Type.OutBounce))
+        group = QParallelAnimationGroup()
+        group.addAnimation(seq_geo)
+        group.addAnimation(self._make_opacity_anim(effect, 0.3, 1.0, duration=450,
+                                                    curve=QEasingCurve.Type.OutCubic))
+        self._run_open(widget, group)
+
+    def _close_cannonball_trail(self, widget, callback=None):
+        rect = widget.geometry()
+        end = QRect(rect.x() - 300, rect.y() - 200, rect.width(), rect.height())
+        effect = self._ensure_opacity_effect(widget)
+        seq_geo = QSequentialAnimationGroup()
+        # Reverse arc upward
+        seq_geo.addAnimation(self._make_geometry_anim(widget, rect, end, duration=450,
+                                                       curve=QEasingCurve.Type.InQuad))
+        group = QParallelAnimationGroup()
+        group.addAnimation(seq_geo)
+        group.addAnimation(self._make_opacity_anim(effect, 1.0, 0.0, duration=450,
+                                                    curve=QEasingCurve.Type.InCubic))
+        self._run_close(widget, group, callback)
+
+    # ── 16. Morale Boost — pulsing green aura ─────────────────
+
+    def _open_morale_boost(self, widget, target):
+        cx = target.x() + target.width() // 2
+        cy = target.y() + target.height() // 2
+        start = QRect(cx - 5, cy - 5, 10, 10)
+        widget.setGeometry(start)
+        effect = self._ensure_opacity_effect(widget)
+        effect.setOpacity(0.0)
+        # Overshoot rect at 110% scale
+        ow = int(target.width() * 1.1)
+        oh = int(target.height() * 1.1)
+        overshoot = QRect(target.x() - (ow - target.width()) // 2,
+                          target.y() - (oh - target.height()) // 2, ow, oh)
+        seq_geo = QSequentialAnimationGroup()
+        # Scale out from center to 110%
+        seq_geo.addAnimation(self._make_geometry_anim(widget, start, overshoot, duration=350,
+                                                       curve=QEasingCurve.Type.OutCubic))
+        # Settle back to 100%
+        seq_geo.addAnimation(self._make_geometry_anim(widget, overshoot, target, duration=250,
+                                                       curve=QEasingCurve.Type.InOutSine))
+        group = QParallelAnimationGroup()
+        group.addAnimation(seq_geo)
+        group.addAnimation(self._make_opacity_anim(effect, 0.0, 1.0, duration=600,
+                                                    curve=QEasingCurve.Type.OutCubic))
+        self._run_open(widget, group)
+
+    def _close_morale_boost(self, widget, callback=None):
+        rect = widget.geometry()
+        cx = rect.x() + rect.width() // 2
+        cy = rect.y() + rect.height() // 2
+        end = QRect(cx - 5, cy - 5, 10, 10)
+        effect = self._ensure_opacity_effect(widget)
+        # Pulse rect at 105% scale
+        pw = int(rect.width() * 1.05)
+        ph = int(rect.height() * 1.05)
+        pulse = QRect(rect.x() - (pw - rect.width()) // 2,
+                      rect.y() - (ph - rect.height()) // 2, pw, ph)
+        seq_geo = QSequentialAnimationGroup()
+        # Pulse out slightly
+        seq_geo.addAnimation(self._make_geometry_anim(widget, rect, pulse, duration=150,
+                                                       curve=QEasingCurve.Type.OutSine))
+        # Shrink to center
+        seq_geo.addAnimation(self._make_geometry_anim(widget, pulse, end, duration=450,
+                                                       curve=QEasingCurve.Type.InCubic))
+        group = QParallelAnimationGroup()
+        group.addAnimation(seq_geo)
+        group.addAnimation(self._make_opacity_anim(effect, 1.0, 0.0, duration=600,
+                                                    curve=QEasingCurve.Type.InCubic))
         self._run_close(widget, group, callback)
 
 

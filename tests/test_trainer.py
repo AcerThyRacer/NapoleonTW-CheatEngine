@@ -140,7 +140,7 @@ class TestOverlayAnimationStyle:
     def test_style_count_at_least_twelve(self):
         """Ensure many animation styles are available."""
         from src.trainer.overlay import OverlayAnimationStyle
-        assert len(OverlayAnimationStyle) == 13
+        assert len(OverlayAnimationStyle) == 17
 
     def test_expected_styles_present(self):
         from src.trainer.overlay import OverlayAnimationStyle
