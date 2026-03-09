@@ -126,10 +126,10 @@ class TestEffectDataClasses:
 class TestEffectRegistry:
     """Tests for the default effects registry."""
 
-    def test_at_least_50_effects(self):
+    def test_at_least_54_effects(self):
         from src.trainer.effects_overlay import build_default_effects
         effects = build_default_effects()
-        assert len(effects) >= 50, f"Only {len(effects)} effects found"
+        assert len(effects) >= 54, f"Only {len(effects)} effects found"
 
     def test_all_effects_have_unique_ids(self):
         from src.trainer.effects_overlay import build_default_effects
@@ -258,7 +258,7 @@ class TestEffectsOverlay:
         overlay = EffectsOverlay()
         assert overlay is not None
         assert overlay.visible is False
-        assert overlay.get_effect_count() >= 50
+        assert overlay.get_effect_count() >= 54
 
     def test_init_with_config(self):
         from src.trainer.effects_overlay import EffectsOverlay, EffectsConfig
@@ -276,7 +276,7 @@ class TestEffectsOverlay:
         from src.trainer.effects_overlay import EffectsOverlay
         overlay = EffectsOverlay()
         defs = overlay.get_effect_definitions()
-        assert len(defs) >= 50
+        assert len(defs) >= 54
         assert all(hasattr(d, 'effect_id') for d in defs)
 
     def test_get_effect_valid(self):
@@ -423,7 +423,7 @@ class TestEffectsOverlay:
     def test_get_effect_count(self):
         from src.trainer.effects_overlay import EffectsOverlay
         overlay = EffectsOverlay()
-        assert overlay.get_effect_count() >= 50
+        assert overlay.get_effect_count() >= 54
 
     def test_get_enabled_count_default(self):
         from src.trainer.effects_overlay import EffectsOverlay

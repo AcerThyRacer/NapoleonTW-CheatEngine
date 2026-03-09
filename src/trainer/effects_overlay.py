@@ -1,6 +1,6 @@
 """
 Visual effects overlay for Napoleon Total War.
-A custom reshade-style overlay with 50+ visual effects organized in categories,
+A custom ReShade-style overlay with 54 visual effects organized in categories,
 featuring sliders, color pickers, and preset management.
 """
 
@@ -179,7 +179,7 @@ def _build_effect(effect_id: str, name: str, category: str,
 
 
 def build_default_effects() -> List[EffectDefinition]:
-    """Build and return the full registry of 50+ effects."""
+    """Build and return the full registry of all default effects."""
     cat = EffectCategory
     effects: List[EffectDefinition] = []
 
@@ -658,7 +658,7 @@ class EffectsOverlay:
     """
     Custom reshade-style effects overlay for Napoleon Total War.
 
-    Provides 50+ visual effects in 8 categories with sliders, colour pickers
+    Provides 54 visual effects in 8 categories with sliders, colour pickers
     and toggle switches.  Supports named presets for quick switching.
     Works as a transparent always-on-top window using PyQt6 when available,
     with a console-text fallback otherwise.
