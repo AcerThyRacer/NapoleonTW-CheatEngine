@@ -12,6 +12,26 @@ from datetime import datetime
 from typing import Optional
 
 
+import os
+
+def _sanitize_path(path_str: str) -> str:
+    """Redact sensitive PII from paths (like user home directories)."""
+    if not path_str:
+        return path_str
+
+    home_dir = str(Path.home())
+    if home_dir in path_str:
+        return path_str.replace(home_dir, '~')
+
+    # Check for Windows username specifically if we are on Windows
+    if sys.platform.startswith('win'):
+        username = os.environ.get('USERNAME')
+        if username and username in path_str:
+            return path_str.replace(username, '<USER>')
+
+    return path_str
+
+
 class JSONFormatter(logging.Formatter):
     """JSON log formatter for structured logging."""
     
@@ -20,17 +40,20 @@ class JSONFormatter(logging.Formatter):
             'timestamp': datetime.fromtimestamp(record.created).isoformat(),
             'level': record.levelname,
             'logger': record.name,
-            'message': record.getMessage(),
+            'message': _sanitize_path(record.getMessage()),
             'module': record.module,
             'function': record.funcName,
             'line': record.lineno,
         }
         
         if record.exc_info and record.exc_info[0] is not None:
-            log_data['exception'] = self.formatException(record.exc_info)
+            log_data['exception'] = _sanitize_path(self.formatException(record.exc_info))
         
         if hasattr(record, 'details'):
-            log_data['details'] = record.details
+            if isinstance(record.details, str):
+                log_data['details'] = _sanitize_path(record.details)
+            else:
+                log_data['details'] = record.details
         
         return json.dumps(log_data)
 
@@ -48,9 +71,19 @@ class ColoredFormatter(logging.Formatter):
     RESET = '\033[0m'
     
     def format(self, record: logging.LogRecord) -> str:
+        original_levelname = record.levelname
         color = self.COLORS.get(record.levelname, self.RESET)
         record.levelname = f"{color}{record.levelname}{self.RESET}"
-        return super().format(record)
+        formatted_message = super().format(record)
+        record.levelname = original_levelname
+        return _sanitize_path(formatted_message)
+
+
+class SanitizedFileFormatter(logging.Formatter):
+    """File formatter that redacts PII."""
+    def format(self, record: logging.LogRecord) -> str:
+        formatted_message = super().format(record)
+        return _sanitize_path(formatted_message)
 
 
 def setup_logging(
@@ -119,7 +152,7 @@ def setup_logging(
     if json_logs:
         file_handler.setFormatter(JSONFormatter())
     else:
-        file_handler.setFormatter(logging.Formatter(
+        file_handler.setFormatter(SanitizedFileFormatter(
             '%(asctime)s %(levelname)s [%(name)s.%(funcName)s:%(lineno)d] %(message)s'
         ))
     
@@ -134,7 +167,7 @@ def setup_logging(
         encoding='utf-8'
     )
     error_handler.setLevel(logging.ERROR)
-    error_handler.setFormatter(logging.Formatter(
+    error_handler.setFormatter(SanitizedFileFormatter(
         '%(asctime)s %(levelname)s [%(name)s.%(funcName)s:%(lineno)d] %(message)s\n'
         'Details: %(pathname)s'
     ))

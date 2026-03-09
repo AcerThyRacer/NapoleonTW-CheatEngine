@@ -12,7 +12,7 @@ set "SOURCE_PATH=%~2"
 set "GAME_ROOT="
 set "MOD_DEST="
 set "ERRORS=0"
-set "LOG_FILE=%TEMP%\ntw_mod_install_%DATE:~-4,4%%DATE:~-10,2%%DATE:~-7,2%.log"
+set "LOG_FILE=%TEMP%\ntw_mod_install_%RANDOM%.log"
 
 echo ============================================================================
 echo Total War: Napoleon Mod Installer - Windows
@@ -177,10 +177,12 @@ if exist "%MOD_DEST%" (
     set /a ERRORS+=1
 )
 
+set "TMP_PREFIX=ntw_%RANDOM%"
+
 REM Test 2: Check for subdirectories
 set /a TESTS_TOTAL+=1
-dir /B /AD "%MOD_DEST%" > "%TEMP%\ntw_dirs.tmp" 2>&1
-set /p DIR_COUNT=<"%TEMP%\ntw_dirs.tmp"
+dir /B /AD "%MOD_DEST%" > "%TEMP%\%TMP_PREFIX%_dirs.tmp" 2>&1
+set /p DIR_COUNT=<"%TEMP%\%TMP_PREFIX%_dirs.tmp"
 if defined DIR_COUNT (
     echo [PASS] Test 2: Subdirectories found
     set /a TESTS_PASSED+=1
@@ -191,8 +193,8 @@ if defined DIR_COUNT (
 
 REM Test 3: Check for .pack files
 set /a TESTS_TOTAL+=1
-dir /B "%MOD_DEST%\*.pack" > "%TEMP%\ntw_packs.tmp" 2>&1
-findstr /C:".pack" "%TEMP%\ntw_packs.tmp" >nul 2>&1
+dir /B "%MOD_DEST%\*.pack" > "%TEMP%\%TMP_PREFIX%_packs.tmp" 2>&1
+findstr /C:".pack" "%TEMP%\%TMP_PREFIX%_packs.tmp" >nul 2>&1
 if %ERRORLEVEL% equ 0 (
     echo [PASS] Test 3: .pack files found
     set /a TESTS_PASSED+=1
@@ -202,8 +204,8 @@ if %ERRORLEVEL% equ 0 (
 
 REM Test 4: Check total file count
 set /a TESTS_TOTAL+=1
-dir /B /S "%MOD_DEST%" > "%TEMP%\ntw_files.tmp" 2>&1
-for /f "usebackq" %%i in (`find /v /c "" ^< "%TEMP%\ntw_files.tmp"`) do set FILE_COUNT=%%i
+dir /B /S "%MOD_DEST%" > "%TEMP%\%TMP_PREFIX%_files.tmp" 2>&1
+for /f "usebackq" %%i in (`find /v /c "" ^< "%TEMP%\%TMP_PREFIX%_files.tmp"`) do set FILE_COUNT=%%i
 if defined FILE_COUNT (
     if %FILE_COUNT% gtr 0 (
         echo [PASS] Test 4: Files installed (count: %FILE_COUNT%)
@@ -233,7 +235,7 @@ if exist "%MOD_DEST%\data" (
 )
 
 REM Cleanup temp files
-del "%TEMP%\ntw_*.tmp" 2>nul
+del "%TEMP%\%TMP_PREFIX%_*.tmp" 2>nul
 
 echo.
 echo ============================================================================

@@ -13,6 +13,15 @@ __version__ = "2.1.0"
 
 def main():
     """Main entry point."""
+    import os
+    if hasattr(os, 'geteuid') and os.geteuid() == 0:
+        print("\n\033[1;31m[SECURITY WARNING]\033[0m")
+        print("You are running this tool as root (sudo). This is a severe security risk!")
+        print("It is highly recommended to run the tool as a regular user and use:")
+        print("  sudo setcap cap_sys_ptrace=eip $(which python3)")
+        print("to grant memory access without running the entire application as root.")
+        print("If you continue, the tool may create files in your home directory owned by root.\n")
+
     parser = argparse.ArgumentParser(
         description="Napoleon Total War Cheat Engine - Cross-platform cheat suite"
     )
