@@ -193,7 +193,7 @@ if [ -z "$GAME_ROOT" ]; then
 fi
 
 MOD_PATH="$GAME_ROOT/data/$MOD_NAME"
-LOG_FILE="/tmp/ntw_mod_test_$(date +%Y%m%d_%H%M%S).log"
+LOG_FILE=$(mktemp /tmp/ntw_mod_test_XXXXXX)
 
 write_test_header "Total War: Napoleon Mod Test Suite - Linux"
 echo ""
@@ -501,7 +501,7 @@ fi
 echo ""
 
 # Save detailed report to log
-REPORT_PATH="/tmp/ntw_mod_test_report_$(date +%Y%m%d_%H%M%S).txt"
+REPORT_PATH=$(mktemp /tmp/ntw_mod_test_report_XXXXXX)
 {
     echo "Total War: Napoleon Mod Test Report"
     echo "===================================="

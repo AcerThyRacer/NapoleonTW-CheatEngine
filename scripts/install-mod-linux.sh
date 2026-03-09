@@ -15,7 +15,7 @@ MOD_DEST=""
 ERRORS=0
 TESTS_PASSED=0
 TESTS_TOTAL=0
-LOG_FILE="/tmp/ntw_mod_install_$(date +%Y%m%d_%H%M%S).log"
+LOG_FILE=$(mktemp /tmp/ntw_mod_install_XXXXXX)
 
 echo "============================================================================"
 echo "Total War: Napoleon Mod Installer - Linux"
@@ -165,8 +165,10 @@ echo ""
 echo "[INFO] Setting file permissions..."
 find "$MOD_DEST" -type f -exec chmod 644 {} \; 2>>"$LOG_FILE"
 find "$MOD_DEST" -type d -exec chmod 755 {} \; 2>>"$LOG_FILE"
-find "$MOD_DEST" -name "*.sh" -exec chmod +x {} \; 2>>"$LOG_FILE"
-find "$MOD_DEST" -name "*.exe" -exec chmod +x {} \; 2>>"$LOG_FILE"
+# Only make known launcher executable if it exists
+if [ -f "$MOD_DEST/launcher.exe" ]; then
+    chmod +x "$MOD_DEST/launcher.exe" 2>>"$LOG_FILE"
+fi
 
 echo ""
 
