@@ -7,6 +7,8 @@ import logging
 from typing import Dict, Callable, Optional, List, Set
 from dataclasses import dataclass
 from enum import Enum
+from src.utils.game_state import GameMode
+from src.utils.events import EventEmitter, EventType
 import threading
 import time
 
@@ -325,6 +327,20 @@ class CheatHotkeys:
         """Initialize cheat hotkeys."""
         self.hotkey_manager = hotkey_manager
         self.cheat_callbacks: Dict[str, Callable] = {}
+        self.current_game_mode = GameMode.UNKNOWN
+
+        # Listen for game state changes
+        EventEmitter().on(EventType.GAME_STATE_CHANGED, self._on_game_state_changed)
+
+    def _on_game_state_changed(self, event) -> None:
+        """Handle game state changes."""
+        new_mode_str = event.data.get('new_mode', 'unknown')
+        try:
+            self.current_game_mode = GameMode(new_mode_str)
+        except ValueError:
+            self.current_game_mode = GameMode.UNKNOWN
+
+        logger.info(f"Hotkeys aware of game mode change to {self.current_game_mode.value}")
     
     def register_cheat_hotkey(
         self,
@@ -414,6 +430,11 @@ class CheatHotkeys:
     def _toggle_campaign_cheat(self, cheat_manager, cheat_type) -> None:
         """Toggle a campaign cheat - actually calls cheat_manager."""
         try:
+            # Check game state if available
+            if hasattr(self, 'current_game_mode') and self.current_game_mode == GameMode.BATTLE:
+                logger.warning(f"Cannot activate campaign cheat {cheat_type.value} in BATTLE mode")
+                return
+
             result = cheat_manager.toggle_cheat(cheat_type)
             is_active = cheat_manager.is_cheat_active(cheat_type)
             status = "ACTIVATED" if is_active else "DEACTIVATED"
@@ -424,6 +445,11 @@ class CheatHotkeys:
     def _toggle_battle_cheat(self, cheat_manager, cheat_type) -> None:
         """Toggle a battle cheat - actually calls cheat_manager."""
         try:
+            # Check game state if available
+            if hasattr(self, 'current_game_mode') and self.current_game_mode == GameMode.CAMPAIGN:
+                logger.warning(f"Cannot activate battle cheat {cheat_type.value} in CAMPAIGN mode")
+                return
+
             result = cheat_manager.toggle_cheat(cheat_type)
             is_active = cheat_manager.is_cheat_active(cheat_type)
             status = "ACTIVATED" if is_active else "DEACTIVATED"

@@ -100,6 +100,7 @@ def launch_trainer():
     try:
         from src.memory import ProcessManager, MemoryScanner, CheatManager
         from src.trainer import HotkeyManager, TrainerCheats
+        from src.utils.game_state import GameStateMonitor
         
         print("\nInitializing trainer...")
         
@@ -109,6 +110,10 @@ def launch_trainer():
         hotkey_manager = HotkeyManager()
         trainer_cheats = TrainerCheats(cheat_manager)
         
+        # Initialize and start game state monitor
+        game_monitor = GameStateMonitor(poll_interval=2.0, memory_scanner=scanner)
+        game_monitor.start()
+
         print("\nWaiting for Napoleon Total War process...")
         print("Press Ctrl+C to exit")
         

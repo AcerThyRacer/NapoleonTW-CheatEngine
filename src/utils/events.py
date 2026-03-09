@@ -22,6 +22,7 @@ class EventType(Enum):
     ERROR_OCCURRED = 'error_occurred'
     STATUS_CHANGED = 'status_changed'
     HOTKEY_PRESSED = 'hotkey_pressed'
+    GAME_STATE_CHANGED = 'game_state_changed'
 
 
 @dataclass
