@@ -6,7 +6,7 @@ try:
     from PyQt6.QtWidgets import (
         QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel,
         QLineEdit, QComboBox, QTableWidget, QTableWidgetItem,
-        QGroupBox, QSpinBox, QDoubleSpinBox, QCheckBox
+        QGroupBox, QSpinBox, QDoubleSpinBox, QCheckBox, QMessageBox
     )
     from PyQt6.QtCore import Qt, QThread, pyqtSignal
     PYQT_AVAILABLE = True
@@ -135,14 +135,20 @@ class MemoryScannerTab(QWidget):
         
         self.new_scan_btn = QPushButton("New Scan")
         self.new_scan_btn.clicked.connect(self._new_scan)
+        self.new_scan_btn.setEnabled(False)
+        self.new_scan_btn.setToolTip("Attach to a game process first to start scanning")
         button_layout.addWidget(self.new_scan_btn)
         
         self.next_scan_btn = QPushButton("Next Scan")
         self.next_scan_btn.clicked.connect(self._next_scan)
+        self.next_scan_btn.setEnabled(False)
+        self.next_scan_btn.setToolTip("Attach to a game process first to scan")
         button_layout.addWidget(self.next_scan_btn)
         
         self.undo_scan_btn = QPushButton("Undo Scan")
         self.undo_scan_btn.clicked.connect(self._undo_scan)
+        self.undo_scan_btn.setEnabled(False)
+        self.undo_scan_btn.setToolTip("No scan to undo")
         button_layout.addWidget(self.undo_scan_btn)
         
         layout.addLayout(button_layout)
@@ -150,12 +156,21 @@ class MemoryScannerTab(QWidget):
         group.setLayout(layout)
         return group
     
+    def _update_scan_buttons_state(self, attached: bool) -> None:
+        """Update the enabled state and tooltips of scan buttons based on attachment."""
+        tooltip = "" if attached else "Attach to a game process first to scan"
+        self.new_scan_btn.setEnabled(attached)
+        self.new_scan_btn.setToolTip(tooltip)
+        self.next_scan_btn.setEnabled(attached)
+        self.next_scan_btn.setToolTip(tooltip)
+
     def _attach_to_process(self) -> None:
         """Attach to Napoleon process."""
         if self.scanner.attach():
             self.process_label.setText(f"Status: Attached to {self.process_manager.process_name}")
             self.attach_btn.setEnabled(False)
             self.detach_btn.setEnabled(True)
+            self._update_scan_buttons_state(True)
             self.statusBar().showMessage("Attached to process") if hasattr(self, 'statusBar') else None
         else:
             self._show_error("Failed to attach to process. Is the game running?")
@@ -166,6 +181,7 @@ class MemoryScannerTab(QWidget):
         self.process_label.setText("Status: Not attached")
         self.attach_btn.setEnabled(True)
         self.detach_btn.setEnabled(False)
+        self._update_scan_buttons_state(False)
         self._clear_results()
     
     def _refresh_process(self) -> None:
@@ -231,6 +247,14 @@ class MemoryScannerTab(QWidget):
         
         self.results_table.setRowCount(len(results))
         
+        has_results = len(results) > 0
+        self.add_selected_btn.setEnabled(has_results)
+        self.add_selected_btn.setToolTip("" if has_results else "Scan for values first to add them to your cheat list")
+        self.clear_results_btn.setEnabled(has_results)
+        self.clear_results_btn.setToolTip("" if has_results else "No results to clear")
+        self.undo_scan_btn.setEnabled(has_results)
+        self.undo_scan_btn.setToolTip("" if has_results else "No scan to undo")
+
         for i, result in enumerate(results):
             addr_item = QTableWidgetItem(f"0x{result.address:08X}")
             value_item = QTableWidgetItem(str(result.value))
@@ -244,6 +268,12 @@ class MemoryScannerTab(QWidget):
         """Clear scan results."""
         self.scanner.clear_results()
         self.results_table.setRowCount(0)
+        self.add_selected_btn.setEnabled(False)
+        self.add_selected_btn.setToolTip("Scan for values first to add them to your cheat list")
+        self.clear_results_btn.setEnabled(False)
+        self.clear_results_btn.setToolTip("No results to clear")
+        self.undo_scan_btn.setEnabled(False)
+        self.undo_scan_btn.setToolTip("No scan to undo")
     
     def _add_selected_to_cheats(self) -> None:
         """Add selected results to cheat list."""
@@ -257,11 +287,27 @@ class MemoryScannerTab(QWidget):
     
     def _show_error(self, message: str) -> None:
         """Show error message."""
-        print(f"ERROR: {message}")
+        if PYQT_AVAILABLE:
+            msg = QMessageBox()
+            msg.setIcon(QMessageBox.Icon.Warning)
+            msg.setWindowTitle("Imperial Command Warning")
+            msg.setText(message)
+            msg.setStyleSheet("QMessageBox { background-color: #1a252f; color: #d4af37; border: 2px solid #d4af37; } QLabel { color: #d4af37; } QPushButton { background-color: #2c3e50; color: #d4af37; border: 1px solid #d4af37; padding: 5px; }")
+            msg.exec()
+        else:
+            print(f"ERROR: {message}")
     
     def _show_info(self, message: str) -> None:
         """Show info message."""
-        print(f"INFO: {message}")
+        if PYQT_AVAILABLE:
+            msg = QMessageBox()
+            msg.setIcon(QMessageBox.Icon.Information)
+            msg.setWindowTitle("Imperial Command Notice")
+            msg.setText(message)
+            msg.setStyleSheet("QMessageBox { background-color: #1a252f; color: #d4af37; border: 2px solid #d4af37; } QLabel { color: #d4af37; } QPushButton { background-color: #2c3e50; color: #d4af37; border: 1px solid #d4af37; padding: 5px; }")
+            msg.exec()
+        else:
+            print(f"INFO: {message}")
     
     def cleanup(self) -> None:
         """Cleanup resources."""
