@@ -4,7 +4,7 @@ Provides Cheat Engine-like functionality for scanning and editing memory.
 """
 
 from enum import Enum
-from typing import List, Optional, Tuple, Dict, Any
+from typing import TYPE_CHECKING, Dict, List, Optional, TypedDict, Union, cast
 from dataclasses import dataclass
 import struct
 import time
@@ -13,9 +13,31 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 import threading
 
 from .process import ProcessManager
-from .backend import MemoryBackend, create_backend
+from .backend import MemoryBackend, MemoryRegion, create_backend
 
 logger = logging.getLogger('napoleon.memory.scanner')
+
+if TYPE_CHECKING:
+    from .advanced import MemoryFreezer
+
+ScanValue = Union[int, float, str]
+
+
+class ScanHistoryEntry(TypedDict, total=False):
+    """Recorded metadata for previous scans."""
+    scan_type: str
+    value: ScanValue
+    value_type: str
+    result_count: int
+
+
+class FreezeStats(TypedDict, total=False):
+    """Statistics returned by the memory freezer."""
+    total_frozen: int
+    active_frozen: int
+    total_writes: int
+    total_errors: int
+    is_running: bool
 
 
 class ValueType(Enum):
@@ -44,11 +66,11 @@ class ScanType(Enum):
 class ScanResult:
     """Represents a memory scan result."""
     address: int
-    value: Any
+    value: ScanValue
     value_type: ValueType
-    previous_value: Optional[Any] = None
+    previous_value: Optional[ScanValue] = None
     
-    def __str__(self):
+    def __str__(self) -> str:
         return f"0x{self.address:08X}: {self.value} ({self.value_type.value})"
 
 
@@ -58,7 +80,7 @@ class MemoryScanner:
     Uses the backend abstraction layer for memory access.
     """
     
-    def __init__(self, process_manager: ProcessManager):
+    def __init__(self, process_manager: ProcessManager) -> None:
         """
         Initialize the memory scanner.
         
@@ -68,11 +90,11 @@ class MemoryScanner:
         self.process_manager = process_manager
         self.backend: Optional[MemoryBackend] = None
         # Legacy alias for code that references self.editor
-        self.editor = None
+        self.editor: Optional[MemoryBackend] = None
         self.results: List[ScanResult] = []
-        self.previous_values: Dict[int, Any] = {}
-        self.scan_history: List[Dict] = []
-        self._freezer = None
+        self.previous_values: Dict[int, ScanValue] = {}
+        self.scan_history: List[ScanHistoryEntry] = []
+        self._freezer: Optional["MemoryFreezer"] = None
         
     def attach(self) -> bool:
         """
@@ -132,7 +154,7 @@ class MemoryScanner:
         }
         return sizes.get(value_type, 4)
     
-    def _pack_value(self, value: Any, value_type: ValueType) -> bytes:
+    def _pack_value(self, value: ScanValue, value_type: ValueType) -> bytes:
         """Pack a value into bytes."""
         try:
             if value_type == ValueType.INT_8:
@@ -154,7 +176,7 @@ class MemoryScanner:
         
         raise ValueError(f"Unknown value type: {value_type}")
     
-    def _unpack_value(self, data: bytes, value_type: ValueType) -> Any:
+    def _unpack_value(self, data: bytes, value_type: ValueType) -> ScanValue:
         """Unpack bytes into a value."""
         try:
             if value_type == ValueType.INT_8:
@@ -178,7 +200,7 @@ class MemoryScanner:
     
     def scan_exact_value_parallel(
         self,
-        value: Any,
+        value: ScanValue,
         value_type: ValueType = ValueType.INT_32,
         from_scratch: bool = True,
         max_workers: int = 4,
@@ -206,14 +228,15 @@ class MemoryScanner:
             self.results = []
             self.previous_values = {}
         
-        if not self.backend:
+        backend = self.backend
+        if not backend:
             return self._manual_scan_exact(value, value_type, from_scratch)
         
         start_time = time.monotonic()
         
         try:
             # Get memory regions
-            regions = self.backend.get_readable_regions()
+            regions = backend.get_readable_regions()
             
             if not regions:
                 return 0
@@ -227,16 +250,16 @@ class MemoryScanner:
             thread_results: List[ScanResult] = []
             timed_out = False
             
-            def scan_region_task(region: Dict) -> List[ScanResult]:
+            def scan_region_task(region: MemoryRegion) -> List[ScanResult]:
                 """Worker function to scan a single region."""
-                local_results = []
+                local_results: List[ScanResult] = []
                 
                 try:
                     if time.monotonic() - start_time > timeout:
                         return local_results
                     
                     # Read entire region via backend
-                    data = self.backend.read_bytes(
+                    data = backend.read_bytes(
                         region['address'],
                         region['size']
                     )
@@ -310,7 +333,7 @@ class MemoryScanner:
     
     def scan_exact_value(
         self,
-        value: Any,
+        value: ScanValue,
         value_type: ValueType = ValueType.INT_32,
         from_scratch: bool = True,
         timeout: float = 30.0
@@ -372,7 +395,7 @@ class MemoryScanner:
     
     def _manual_scan_exact(
         self,
-        value: Any,
+        value: ScanValue,
         value_type: ValueType,
         from_scratch: bool
     ) -> int:
@@ -398,7 +421,7 @@ class MemoryScanner:
             raise RuntimeError("No previous scan results. Do an exact value scan first.")
         
         start_time = time.monotonic()
-        new_results = []
+        new_results: List[ScanResult] = []
         
         for result in self.results:
             if time.monotonic() - start_time > timeout:
@@ -408,14 +431,17 @@ class MemoryScanner:
             # Read current value
             current_value = self.read_value(result.address, value_type)
             
-            if current_value is not None and current_value > result.value:
-                new_result = ScanResult(
+            if (
+                isinstance(current_value, (int, float))
+                and isinstance(result.value, (int, float))
+                and current_value > result.value
+            ):
+                new_results.append(ScanResult(
                     address=result.address,
                     value=current_value,
                     value_type=value_type,
                     previous_value=result.value
-                )
-                new_results.append(new_result)
+                ))
         
         self.results = new_results
         return len(self.results)
@@ -435,7 +461,7 @@ class MemoryScanner:
             raise RuntimeError("No previous scan results. Do an exact value scan first.")
         
         start_time = time.monotonic()
-        new_results = []
+        new_results: List[ScanResult] = []
         
         for result in self.results:
             if time.monotonic() - start_time > timeout:
@@ -444,19 +470,22 @@ class MemoryScanner:
             
             current_value = self.read_value(result.address, value_type)
             
-            if current_value is not None and current_value < result.value:
-                new_result = ScanResult(
+            if (
+                isinstance(current_value, (int, float))
+                and isinstance(result.value, (int, float))
+                and current_value < result.value
+            ):
+                new_results.append(ScanResult(
                     address=result.address,
                     value=current_value,
                     value_type=value_type,
                     previous_value=result.value
-                )
-                new_results.append(new_result)
+                ))
         
         self.results = new_results
         return len(self.results)
     
-    def read_value(self, address: int, value_type: ValueType = ValueType.INT_32) -> Optional[Any]:
+    def read_value(self, address: int, value_type: ValueType = ValueType.INT_32) -> Optional[ScanValue]:
         """
         Read a value from memory.
         
@@ -465,7 +494,7 @@ class MemoryScanner:
             value_type: Type of value to read
             
         Returns:
-            Optional[Any]: Read value or None if failed
+            Optional[ScanValue]: Read value or None if failed
         """
         if not self.is_attached():
             return None
@@ -481,7 +510,7 @@ class MemoryScanner:
         
         return None
     
-    def write_value(self, address: int, value: Any, value_type: ValueType = ValueType.INT_32) -> bool:
+    def write_value(self, address: int, value: ScanValue, value_type: ValueType = ValueType.INT_32) -> bool:
         """
         Write a value to memory.
         
@@ -505,7 +534,7 @@ class MemoryScanner:
         
         return False
     
-    def freeze_value(self, address: int, value: Any, value_type: ValueType = ValueType.INT_32,
+    def freeze_value(self, address: int, value: ScanValue, value_type: ValueType = ValueType.INT_32,
                      interval_ms: int = 50) -> bool:
         """
         Freeze a value at a specific address (continuously writes in background).
@@ -525,8 +554,10 @@ class MemoryScanner:
         from .advanced import MemoryFreezer
         
         # Lazily create the freezer, wired to our backend
-        if self._freezer is None:
-            self._freezer = MemoryFreezer(editor=self.backend)
+        freezer = self._freezer
+        if freezer is None:
+            freezer = MemoryFreezer(editor=self.backend)
+            self._freezer = freezer
         
         # Map ValueType enum to freezer type strings
         type_map = {
@@ -539,7 +570,7 @@ class MemoryScanner:
         }
         freeze_type = type_map.get(value_type, 'int32')
         
-        return self._freezer.freeze(
+        return freezer.freeze(
             address=address,
             value=value,
             value_type=freeze_type,
@@ -559,11 +590,17 @@ class MemoryScanner:
             return self._freezer.unfreeze_all()
         return 0
     
-    def get_freeze_stats(self) -> Dict[str, Any]:
+    def get_freeze_stats(self) -> FreezeStats:
         """Get statistics about frozen addresses."""
         if self._freezer:
-            return self._freezer.get_stats()
-        return {'total_frozen': 0, 'active_frozen': 0, 'is_running': False}
+            return cast(FreezeStats, self._freezer.get_stats())
+        return {
+            'total_frozen': 0,
+            'active_frozen': 0,
+            'total_writes': 0,
+            'total_errors': 0,
+            'is_running': False,
+        }
     
     def get_results(self) -> List[ScanResult]:
         """
@@ -659,13 +696,13 @@ class MemoryScanner:
             print(f"Signature scan error: {e}")
             return 0
     
-    def _get_readable_memory_regions(self) -> List[Dict]:
+    def _get_readable_memory_regions(self) -> List[MemoryRegion]:
         """
         Get list of readable memory regions from the process.
         Delegates to the backend.
         
         Returns:
-            List[Dict]: List of region dictionaries with 'address' and 'size'
+            List[MemoryRegion]: List of region dictionaries with 'address' and 'size'
         """
         if self.backend:
             return self.backend.get_readable_regions()
@@ -688,7 +725,7 @@ class MemoryScanner:
         Returns:
             List[int]: List of offsets where pattern found
         """
-        matches = []
+        matches: List[int] = []
         
         if not pattern:
             return matches
@@ -755,3 +792,93 @@ class MemoryScanner:
             
         except Exception:
             return []
+
+    # ------------------------------------------------------------------
+    # Pointer chain scanning
+    # ------------------------------------------------------------------
+
+    def scan_pointers(self, base_address: int, offsets: List[int]) -> Optional[int]:
+        """
+        Follow a pointer chain starting from *base_address*.
+
+        At each level the method reads an 8-byte (64-bit) or 4-byte
+        (32-bit) pointer, adds the next offset, and dereferences again
+        until the chain is exhausted.
+
+        Args:
+            base_address: Starting memory address.
+            offsets:      List of offsets to apply at each dereference level.
+
+        Returns:
+            The final resolved address, or ``None`` if any read fails.
+        """
+        if not self.is_attached() or not self.backend:
+            return None
+
+        address = base_address
+        for offset in offsets:
+            try:
+                data = self.backend.read_bytes(address, 8)
+                if not data or len(data) < 4:
+                    logger.warning("Pointer read failed at 0x%08X", address)
+                    return None
+
+                # Try 64-bit first, fall back to 32-bit
+                if len(data) >= 8:
+                    ptr = struct.unpack('<Q', data[:8])[0]
+                    if ptr > 0x7FFFFFFFFFFF:
+                        ptr = struct.unpack('<I', data[:4])[0]
+                else:
+                    ptr = struct.unpack('<I', data[:4])[0]
+
+                if ptr == 0:
+                    logger.warning("Null pointer at 0x%08X", address)
+                    return None
+
+                address = ptr + offset
+            except Exception as exc:
+                logger.error("scan_pointers failed at 0x%08X: %s", address, exc)
+                return None
+
+        return address
+
+    # ------------------------------------------------------------------
+    # AOB (Array of Bytes) convenience scanner
+    # ------------------------------------------------------------------
+
+    def scan_aob(self, signature: str, max_results: int = 100,
+                 timeout: float = 30.0) -> List[int]:
+        """
+        Scan memory for an AOB (Array of Bytes) pattern string.
+
+        The pattern uses hex bytes separated by spaces.  Use ``??``
+        as a wildcard for any single byte.
+
+        Example::
+
+            addresses = scanner.scan_aob("89 5D ?? ?? 8B 45")
+
+        Args:
+            signature:   Pattern string, e.g. ``"89 5D ?? ?? 8B 45"``.
+            max_results: Maximum number of matches to return.
+            timeout:     Scan timeout in seconds.
+
+        Returns:
+            List of matching memory addresses.
+        """
+        if not self.is_attached() or not self.backend:
+            return []
+
+        from .advanced import AOBPattern, AOBScanner
+
+        pattern = AOBPattern(
+            name='scan_aob_query',
+            pattern=signature,
+            description='User AOB scan',
+        )
+        aob = AOBScanner(editor=self.backend)
+        return aob.scan(
+            pattern,
+            max_results=max_results,
+            timeout=timeout,
+        )

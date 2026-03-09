@@ -7,6 +7,7 @@ import os
 import sys
 import struct
 from pathlib import Path
+from typing import Optional
 from unittest.mock import Mock, MagicMock, patch, PropertyMock
 
 import pytest
@@ -54,6 +55,35 @@ class TestMemoryScanner:
         pm = ProcessManager()
         scanner = MemoryScanner(pm)
         assert hasattr(scanner, 'scan_exact_value_parallel')
+
+    def test_parallel_scan_finds_integer_matches_with_backend(self):
+        from src.memory.scanner import MemoryScanner, ValueType
+
+        class FakeBackend:
+            is_open = True
+
+            def __init__(self) -> None:
+                self._region = {'address': 0x1000, 'size': 12}
+                self._data = struct.pack('<iii', 42, 7, 42)
+
+            def get_readable_regions(self):
+                return [self._region]
+
+            def read_bytes(self, address: int, size: int) -> Optional[bytes]:
+                if address == self._region['address'] and size == self._region['size']:
+                    return self._data
+                return None
+
+        process_manager = Mock()
+        process_manager.is_attached.return_value = True
+
+        scanner = MemoryScanner(process_manager)
+        scanner.backend = FakeBackend()
+
+        count = scanner.scan_exact_value_parallel(42, ValueType.INT_32)
+
+        assert count == 2
+        assert [result.address for result in scanner.get_results()] == [0x1000, 0x1008]
 
 
 class TestMemoryAdvanced:
@@ -150,6 +180,38 @@ class TestMemoryAdvanced:
 
 class TestMemoryBackend:
     """Tests for memory backend helpers."""
+
+    def test_search_bytes_uses_supplied_regions(self):
+        from src.memory.backend import MemoryBackend
+
+        class FakeBackend(MemoryBackend):
+            def __init__(self) -> None:
+                self._data = {0x1000: b'ABABX'}
+
+            def open(self, pid: int) -> bool:
+                return True
+
+            def close(self) -> None:
+                pass
+
+            def read_bytes(self, address: int, size: int) -> Optional[bytes]:
+                return self._data.get(address)
+
+            def write_bytes(self, address: int, data: bytes) -> bool:
+                return False
+
+            def get_readable_regions(self):
+                raise AssertionError("search_bytes should use supplied regions")
+
+            @property
+            def is_open(self) -> bool:
+                return True
+
+        backend = FakeBackend()
+
+        results = backend.search_bytes(b'AB', regions=[{'address': 0x1000, 'size': 5}])
+
+        assert results == [0x1000, 0x1002]
 
     def test_get_best_backend_prefers_procmem_on_native_linux(self):
         from src.memory.backend import ProcMemBackend, get_best_backend

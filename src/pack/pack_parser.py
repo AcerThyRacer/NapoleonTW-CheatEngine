@@ -315,7 +315,7 @@ class PackParser:
         """
         import os
         
-        output_path = Path(output_dir)
+        output_path = Path(output_dir).resolve()
         output_path.mkdir(parents=True, exist_ok=True)
         
         success_count = 0
@@ -323,7 +323,15 @@ class PackParser:
             data = self.extract_file(file_path)
             if data:
                 # Create directory structure
-                dest_path = output_path / file_path
+                dest_path = (output_path / file_path).resolve()
+
+                # Prevent path traversal (Zip Slip)
+                try:
+                    dest_path.relative_to(output_path)
+                except ValueError:
+                    logger.error("Path traversal detected, skipping file: %s", file_path)
+                    continue
+
                 dest_path.parent.mkdir(parents=True, exist_ok=True)
                 
                 with open(dest_path, 'wb') as f:
