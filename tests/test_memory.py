@@ -2,6 +2,7 @@
 Tests for memory scanner and advanced memory operations.
 """
 
+import io
 import os
 import sys
 import struct
@@ -145,3 +146,29 @@ class TestMemoryAdvanced:
         assert fa.address == 0xDEAD
         assert fa.value == 42
         assert fa.enabled is True
+
+
+class TestMemoryBackend:
+    """Tests for memory backend helpers."""
+
+    def test_procmem_regions_skip_malformed_lines(self):
+        from src.memory.backend import ProcMemBackend
+
+        backend = ProcMemBackend()
+        backend._pid = 1234
+        maps_data = io.StringIO(
+            "00400000-00452000 r-xp 00000000 08:02 123 /bin/cat\n"
+            "malformed-line-without-range r--p 00000000 00:00 0\n"
+            "zzzz-00453000 r--p 00000000 00:00 0\n"
+            "00453000-00452000 r--p 00000000 00:00 0\n"
+            "00652000-00653000 ---p 00052000 08:02 123 /bin/cat\n"
+            "00653000-00654000 r--p 00053000 08:02 123 /bin/cat\n"
+        )
+
+        with patch('builtins.open', return_value=maps_data):
+            regions = backend.get_readable_regions()
+
+        assert regions == [
+            {'address': 0x00400000, 'size': 0x52000},
+            {'address': 0x00653000, 'size': 0x1000},
+        ]

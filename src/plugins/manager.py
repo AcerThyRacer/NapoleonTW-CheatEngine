@@ -162,9 +162,14 @@ class PluginManager:
                 if not line or line.startswith('#'):
                     continue
                 hash_val = line.split()[0].lower()
-                if len(hash_val) == 64:
-                    self._hash_allowlist.add(hash_val)
-                    count += 1
+                if len(hash_val) != 64:
+                    continue
+                try:
+                    int(hash_val, 16)
+                except ValueError:
+                    continue
+                self._hash_allowlist.add(hash_val)
+                count += 1
             logger.info("Loaded %d hashes from allowlist %s", count, path)
         except OSError as e:
             logger.error("Failed to read allowlist %s: %s", path, e)

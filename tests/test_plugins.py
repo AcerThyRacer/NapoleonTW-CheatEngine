@@ -117,3 +117,21 @@ class DiscoverPlugin(PluginBase):
         (temp_dir / "test_plugin.py").write_text(plugin_code)
         found = pm.discover_plugins()
         assert len(found) >= 1
+
+    def test_load_allowlist_ignores_invalid_hashes(self, temp_dir):
+        from src.plugins.manager import PluginManager
+
+        valid_hash = 'a' * 64
+        invalid_hash = 'g' * 64
+        allowlist = temp_dir / "plugin_allowlist.sha256"
+        allowlist.write_text(
+            f"{valid_hash}  # valid\n"
+            f"{invalid_hash}  # invalid non-hex\n"
+            "short-hash\n"
+        )
+
+        pm = PluginManager(plugin_dirs=[temp_dir])
+        count = pm.load_allowlist(allowlist)
+
+        assert count == 1
+        assert pm._hash_allowlist == {valid_hash}

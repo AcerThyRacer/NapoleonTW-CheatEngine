@@ -884,6 +884,20 @@ class TestCLI:
         captured = capsys.readouterr()
         assert 'Unknown command' in captured.out
 
+    def test_cli_results_rejects_invalid_count(self, capsys):
+        from src.cli.interactive import InteractiveCLI
+
+        cli = InteractiveCLI()
+        cli._scanner = Mock()
+        cli._scanner.results = [
+            Mock(address=0x1234, value=99, value_type=Mock(value='4 Bytes'))
+        ]
+
+        cli.do_results('not-a-number')
+        captured = capsys.readouterr()
+
+        assert 'Usage: results [positive count]' in captured.out
+
 
 # ══════════════════════════════════════════════════════════════
 # Plugin System Tests

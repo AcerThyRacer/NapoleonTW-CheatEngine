@@ -191,7 +191,17 @@ class InteractiveCLI(cmd.Cmd):
             print("  No scan results.")
             return
         
-        limit = int(arg.strip()) if arg.strip() else 20
+        if arg.strip():
+            try:
+                limit = int(arg.strip())
+            except ValueError:
+                print("Usage: results [positive count]")
+                return
+            if limit <= 0:
+                print("Usage: results [positive count]")
+                return
+        else:
+            limit = 20
         results = self._scanner.results[:limit]
         
         print(f"\n  Scan Results ({len(self._scanner.results)} total, showing {len(results)}):")

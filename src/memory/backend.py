@@ -292,11 +292,19 @@ class ProcMemBackend(MemoryBackend):
             with open(maps_path, 'r') as f:
                 for line in f:
                     parts = line.split()
-                    if len(parts) >= 2 and 'r' in parts[1]:
-                        addr_range = parts[0].split('-')
+                    if len(parts) < 2 or 'r' not in parts[1]:
+                        continue
+                    addr_range = parts[0].split('-', 1)
+                    if len(addr_range) != 2:
+                        continue
+                    try:
                         start = int(addr_range[0], 16)
                         end = int(addr_range[1], 16)
-                        regions.append({'address': start, 'size': end - start})
+                    except ValueError:
+                        continue
+                    if end <= start:
+                        continue
+                    regions.append({'address': start, 'size': end - start})
         except Exception as e:
             logger.debug("Failed to read /proc/%d/maps: %s", self._pid, e)
         return regions
