@@ -13,6 +13,7 @@ from .advanced import (
     AOBScanner, AOBPattern,
     ChunkedScanner,
 )
+from .signatures import SignatureDatabase, SignatureEntry, ChainEntry, PatternMetadata
 
 __all__ = [
     'ProcessManager',
@@ -30,4 +31,8 @@ __all__ = [
     'AOBScanner',
     'AOBPattern',
     'ChunkedScanner',
+    'SignatureDatabase',
+    'SignatureEntry',
+    'ChainEntry',
+    'PatternMetadata',
 ]
