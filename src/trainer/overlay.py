@@ -712,11 +712,15 @@ class CheatOverlay:
             if self._animation_mgr:
                 self._animation_mgr.animate_close(
                     self.window,
-                    callback=lambda: setattr(self, 'visible', False),
+                    callback=self._on_hide_complete,
                 )
             else:
                 self.window.hide()
             self.visible = False
+
+    def _on_hide_complete(self) -> None:
+        """Callback invoked when the hide animation finishes."""
+        self.visible = False
 
     def toggle(self) -> None:
         """Toggle overlay visibility."""
