@@ -12,6 +12,7 @@ from enum import Enum
 import psutil
 
 from .platform import get_all_possible_process_names
+from .events import EventEmitter, EventType
 
 logger = logging.getLogger('napoleon.utils.game_state')
 
@@ -37,13 +38,14 @@ class GameStateMonitor:
     - Configurable polling interval
     """
     
-    def __init__(self, poll_interval: float = 2.0):
+    def __init__(self, poll_interval: float = 2.0, memory_scanner=None):
         """
         Initialize game state monitor.
         
         Args:
             poll_interval: How often to check game state (seconds)
         """
+        self.memory_scanner = memory_scanner
         self.poll_interval = poll_interval
         self._thread: Optional[threading.Thread] = None
         self._running = False
@@ -131,6 +133,14 @@ class GameStateMonitor:
                 self._pid = None
                 
                 logger.info("Game stopped")
+
+                # Emit event
+                EventEmitter().emit(
+                    EventType.PROCESS_DETACHED,
+                    data={'pid': self._pid},
+                    source='game_state_monitor'
+                )
+
                 if self._on_game_stopped:
                     self._on_game_stopped()
                 if self._on_mode_changed:
@@ -143,6 +153,13 @@ class GameStateMonitor:
                 self._pid = process.pid
                 logger.info("Game detected: PID %d", self._pid)
                 
+                # Emit event
+                EventEmitter().emit(
+                    EventType.PROCESS_ATTACHED,
+                    data={'pid': self._pid},
+                    source='game_state_monitor'
+                )
+
                 if self._on_game_started:
                     self._on_game_started(self._pid)
             
@@ -154,6 +171,13 @@ class GameStateMonitor:
                 self._current_mode = new_mode
                 logger.info("Mode changed: %s -> %s", old_mode.value, new_mode.value)
                 
+                # Emit event
+                EventEmitter().emit(
+                    EventType.GAME_STATE_CHANGED,
+                    data={'old_mode': old_mode.value, 'new_mode': new_mode.value},
+                    source='game_state_monitor'
+                )
+
                 if self._on_mode_changed:
                     self._on_mode_changed(old_mode, new_mode)
             
@@ -206,12 +230,17 @@ class GameStateMonitor:
         2. Window title analysis
         3. Thread count + memory heuristic (fallback)
         """
-        # Strategy 1: Try window title detection (most reliable on Linux)
+        # Strategy 1: Memory signature detection
+        mode = self._detect_mode_by_memory()
+        if mode != GameMode.UNKNOWN:
+            return mode
+
+        # Strategy 2: Try window title detection (most reliable on Linux)
         mode = self._detect_mode_by_title(process)
         if mode != GameMode.UNKNOWN:
             return mode
         
-        # Strategy 2: Thread count + memory as rough heuristic
+        # Strategy 3: Thread count + memory as rough heuristic
         try:
             with process.oneshot():
                 cpu = process.cpu_percent()
@@ -238,7 +267,54 @@ class GameStateMonitor:
                 
         except (psutil.NoSuchProcess, psutil.AccessDenied):
             return GameMode.UNKNOWN
-    
+
+    def _detect_mode_by_memory(self) -> GameMode:
+        """
+        Detect game mode by scanning memory for known signatures.
+        Returns GameMode.UNKNOWN if detection fails or scanner is not available.
+        """
+        if getattr(self, 'memory_scanner', None) is None or not self.memory_scanner.is_attached():
+            return GameMode.UNKNOWN
+
+        try:
+            from src.memory.advanced import PointerResolver, PointerChain
+
+            resolver = PointerResolver(self.memory_scanner.backend, self.memory_scanner.process_manager.pid)
+
+            # Use known campaign chain from napoleon_v1_6.json
+            campaign_chain = PointerChain(
+                module_name='napoleon.exe',
+                base_offset=0x00A1B2C0,
+                offsets=[0x4C, 0x10, 0x8],
+                description='Campaign Treasury Check',
+                value_type='int32'
+            )
+
+            # Use known campaign research chain from napoleon_v1_6.json
+            research_chain = PointerChain(
+                module_name='napoleon.exe',
+                base_offset=0x00A3D4E0,
+                offsets=[0x28, 0x10, 0xC],
+                description='Campaign Research Check',
+                value_type='int32'
+            )
+
+            val1 = resolver.resolve_and_read(campaign_chain)
+            val2 = resolver.resolve_and_read(research_chain)
+            if (val1 is not None and val1 >= 0) or (val2 is not None and val2 >= 0):
+                return GameMode.CAMPAIGN
+
+            # If we can't resolve campaign pointers, check if we can resolve battle ones.
+            # While we don't have exact battle static pointers in the JSON, we can use
+            # signature scanning or heuristic fallback. Let's assume if it's attached
+            # and NOT campaign, it's either Battle or Main Menu/Loading.
+            # We will fallback to window title/heuristic for Battle.
+
+        except Exception as e:
+            logger.debug(f"Memory state detection failed: {e}")
+
+        return GameMode.UNKNOWN
+
     def _detect_mode_by_title(self, process: psutil.Process) -> GameMode:
         """
         Try to detect game mode by examining open file descriptors or 
