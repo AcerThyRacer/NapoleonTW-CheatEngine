@@ -12,12 +12,18 @@ This isolates the rest of the codebase from library-specific API differences.
 import logging
 import os
 import sys
-from typing import Optional, List, Dict, Type
+from typing import Any, List, Optional, Type, TypedDict
 from abc import ABC, abstractmethod
 
 from src.utils.platform import get_platform, is_proton
 
 logger = logging.getLogger('napoleon.memory.backend')
+
+
+class MemoryRegion(TypedDict):
+    """Readable process memory region."""
+    address: int
+    size: int
 
 
 class MemoryBackend(ABC):
@@ -44,7 +50,7 @@ class MemoryBackend(ABC):
         ...
     
     @abstractmethod
-    def get_readable_regions(self) -> List[Dict[str, int]]:
+    def get_readable_regions(self) -> List[MemoryRegion]:
         """Get list of readable memory regions: [{'address': int, 'size': int}]."""
         ...
     
@@ -54,7 +60,11 @@ class MemoryBackend(ABC):
         """Whether the backend is attached to a process."""
         ...
     
-    def search_bytes(self, pattern: bytes, regions: Optional[List[Dict]] = None) -> List[int]:
+    def search_bytes(
+        self,
+        pattern: bytes,
+        regions: Optional[List[MemoryRegion]] = None
+    ) -> List[int]:
         """
         Search for a byte pattern across all readable regions.
         Default implementation — backends can override for speed.
@@ -62,7 +72,7 @@ class MemoryBackend(ABC):
         if regions is None:
             regions = self.get_readable_regions()
         
-        results = []
+        results: List[int] = []
         for region in regions:
             data = self.read_bytes(region['address'], region['size'])
             if not data:
@@ -82,8 +92,8 @@ class MemoryBackend(ABC):
 class PymemBackend(MemoryBackend):
     """Backend using pymem library (preferred on Windows, works on Linux with Wine)."""
     
-    def __init__(self):
-        self._pm = None
+    def __init__(self) -> None:
+        self._pm: Optional[Any] = None
         self._pid: Optional[int] = None
     
     def open(self, pid: int) -> bool:
@@ -129,12 +139,12 @@ class PymemBackend(MemoryBackend):
             logger.debug("Pymem write error at 0x%X: %s", address, e)
             return False
     
-    def get_readable_regions(self) -> List[Dict[str, int]]:
+    def get_readable_regions(self) -> List[MemoryRegion]:
         if not self._pm or not self._pid:
             return []
         try:
             import pymem.process
-            regions = []
+            regions: List[MemoryRegion] = []
             for module in pymem.process.enum_process_module(self._pm.process_handle):
                 regions.append({
                     'address': module.lpBaseOfDll,
@@ -144,7 +154,7 @@ class PymemBackend(MemoryBackend):
         except Exception:
             return self._fallback_regions()
     
-    def _fallback_regions(self) -> List[Dict[str, int]]:
+    def _fallback_regions(self) -> List[MemoryRegion]:
         """Fallback region list if module enumeration fails."""
         return [
             {'address': 0x00400000, 'size': 0x02000000},
@@ -155,7 +165,11 @@ class PymemBackend(MemoryBackend):
     def is_open(self) -> bool:
         return self._pm is not None
     
-    def search_bytes(self, pattern: bytes, regions: Optional[List[Dict]] = None) -> List[int]:
+    def search_bytes(
+        self,
+        pattern: bytes,
+        regions: Optional[List[MemoryRegion]] = None
+    ) -> List[int]:
         """Override with pymem's native pattern scan if available."""
         if self._pm:
             try:
@@ -171,8 +185,8 @@ class PymemBackend(MemoryBackend):
 class PyMemoryEditorBackend(MemoryBackend):
     """Backend using PyMemoryEditor library."""
     
-    def __init__(self):
-        self._editor = None
+    def __init__(self) -> None:
+        self._editor: Optional[Any] = None
         self._pid: Optional[int] = None
     
     def open(self, pid: int) -> bool:
@@ -216,7 +230,7 @@ class PyMemoryEditorBackend(MemoryBackend):
         except Exception:
             return False
     
-    def get_readable_regions(self) -> List[Dict[str, int]]:
+    def get_readable_regions(self) -> List[MemoryRegion]:
         # PyMemoryEditor doesn't expose region enumeration directly
         return [
             {'address': 0x00400000, 'size': 0x02000000},
@@ -231,9 +245,9 @@ class PyMemoryEditorBackend(MemoryBackend):
 class ProcMemBackend(MemoryBackend):
     """Direct /proc/<pid>/mem access for Linux."""
     
-    def __init__(self):
+    def __init__(self) -> None:
         self._pid: Optional[int] = None
-        self._mem_fd = None
+        self._mem_fd: Optional[int] = None
     
     def open(self, pid: int) -> bool:
         if sys.platform != 'linux':
@@ -284,10 +298,10 @@ class ProcMemBackend(MemoryBackend):
         except Exception:
             return False
     
-    def get_readable_regions(self) -> List[Dict[str, int]]:
+    def get_readable_regions(self) -> List[MemoryRegion]:
         if not self._pid:
             return []
-        regions = []
+        regions: List[MemoryRegion] = []
         try:
             maps_path = f"/proc/{self._pid}/maps"
             with open(maps_path, 'r') as f:
