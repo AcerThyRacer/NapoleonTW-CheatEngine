@@ -477,19 +477,19 @@ class NapoleonControlPanel(QMainWindow):
         stats_row = QHBoxLayout()
         stats_row.setSpacing(20)
 
-        self.gold_label = QLabel("💰 --- Gold")
+        self.gold_label = QLabel("💰 0 Gold")
         self.gold_label.setFont(QFont("Georgia", 16, QFont.Weight.Bold))
         self.gold_label.setStyleSheet("color: #f1c40f;")
         self.gold_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         stats_row.addWidget(self.gold_label)
 
-        self.army_label = QLabel("⚔️ --- Armies Active")
+        self.army_label = QLabel("⚔️ 0 Armies Active")
         self.army_label.setFont(QFont("Georgia", 16, QFont.Weight.Bold))
         self.army_label.setStyleSheet("color: #3498db;")
         self.army_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         stats_row.addWidget(self.army_label)
 
-        self.morale_label = QLabel("🎖️ --- Morale")
+        self.morale_label = QLabel("🎖️ 0 Morale")
         self.morale_label.setFont(QFont("Georgia", 16, QFont.Weight.Bold))
         self.morale_label.setStyleSheet("color: #2ecc71;")
         self.morale_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
