@@ -6,9 +6,25 @@ Main entry point.
 
 import sys
 import argparse
+import logging
 from pathlib import Path
 
 __version__ = "2.1.0"
+logger = logging.getLogger('napoleon.main')
+_startup_plugin_manager = None
+
+
+def _load_startup_plugins():
+    """Load startup plugins from the configured plugin directories."""
+    global _startup_plugin_manager
+
+    try:
+        from src.plugins.manager import PluginManager
+
+        _startup_plugin_manager = PluginManager()
+        _startup_plugin_manager.load_all()
+    except Exception as e:
+        logger.warning("Failed to load startup plugins: %s", e)
 
 
 def main():
@@ -74,6 +90,8 @@ def main():
 
 def launch_gui():
     """Launch the GUI application."""
+    _load_startup_plugins()
+
     try:
         # Try Napoleon Control Panel first (enhanced GUI)
         from src.gui.napoleon_panel import main as napoleon_main
