@@ -6,22 +6,25 @@ Main entry point.
 
 import sys
 import argparse
+import logging
 from pathlib import Path
 
 __version__ = "2.1.0"
+logger = logging.getLogger('napoleon.main')
+_startup_plugin_manager = None
 
 
 def _load_startup_plugins():
     """Load startup plugins from the configured plugin directories."""
+    global _startup_plugin_manager
+
     try:
         from src.plugins.manager import PluginManager
 
-        plugin_manager = PluginManager()
-        plugin_manager.load_all()
-        return plugin_manager
+        _startup_plugin_manager = PluginManager()
+        _startup_plugin_manager.load_all()
     except Exception as e:
-        print(f"Warning: failed to load startup plugins: {e}")
-        return None
+        logger.warning("Failed to load startup plugins: %s", e)
 
 
 def main():

@@ -9,12 +9,6 @@ import types
 from pathlib import Path
 from unittest.mock import Mock, patch
 
-import psutil
-
-# Patch psutil._common.pmmap if missing (some psutil versions lack it)
-if not hasattr(psutil._common, 'pmmap'):
-    psutil._common.pmmap = type('pmmap', (), {})
-
 # Ensure src is importable
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
