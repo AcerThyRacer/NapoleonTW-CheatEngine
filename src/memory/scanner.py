@@ -4,13 +4,15 @@ Provides Cheat Engine-like functionality for scanning and editing memory.
 """
 
 from enum import Enum
-from typing import TYPE_CHECKING, Dict, List, Optional, TypedDict, Union, cast
+from typing import TYPE_CHECKING, Dict, List, Optional, TypedDict, Union, cast, Any
 from dataclasses import dataclass
+import json
 import struct
 import time
 import logging
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import threading
+from pathlib import Path
 
 from .process import ProcessManager
 from .backend import MemoryBackend, MemoryRegion, create_backend
@@ -96,6 +98,11 @@ class MemoryScanner:
         self.scan_history: List[ScanHistoryEntry] = []
         self._freezer: Optional["MemoryFreezer"] = None
         
+        # Incremental scan caching
+        self.scan_cache: Dict[str, Dict[str, Any]] = {}
+        self._cache_dir = Path.cwd() / '.cache' / 'scans'
+        self._cache_dir.mkdir(parents=True, exist_ok=True)
+        
     def attach(self) -> bool:
         """
         Attach to the process and initialize memory backend.
@@ -153,6 +160,277 @@ class MemoryScanner:
             ValueType.DOUBLE: 8,
         }
         return sizes.get(value_type, 4)
+    
+    def get_prioritized_regions(
+        self,
+        regions: List[MemoryRegion]
+    ) -> List[MemoryRegion]:
+        """
+        Sort and filter memory regions by priority for faster scanning.
+        
+        Priority order:
+        1. napoleon.exe module (primary game executable)
+        2. Anonymous heap/private memory (likely game data)
+        3. Other executable modules (DLLs)
+        4. Mapped files/data segments
+        
+        Skipped entirely:
+        - Video driver memory (large, rarely contains game state)
+        - Kernel/system memory
+        - Hardware-mapped regions
+        
+        Args:
+            regions: List of all readable memory regions
+            
+        Returns:
+            List[MemoryRegion]: Prioritized and filtered regions
+        """
+        if not regions:
+            return []
+        
+        prioritized: List[MemoryRegion] = []
+        heap_regions: List[MemoryRegion] = []
+        dll_regions: List[MemoryRegion] = []
+        other_regions: List[MemoryRegion] = []
+        
+        for region in regions:
+            addr = region['address']
+            size = region['size']
+            
+            # Skip video driver memory (typically 0xA0000000+ or very large)
+            if addr >= 0xA0000000:
+                continue
+            
+            # Skip kernel/system memory (low addresses on Windows)
+            if addr < 0x00400000 and addr > 0x10000:
+                continue
+            
+            # Skip hardware-mapped regions
+            if size > 0x40000000:  # > 1GB
+                continue
+            
+            # Check if this is napoleon.exe (typically first module at 0x00400000)
+            if addr == 0x00400000 or (0x00400000 <= addr < 0x01000000 and size > 0x100000):
+                prioritized.append(region)
+                continue
+            
+            # Check if this is anonymous private memory (heap)
+            # Private memory typically has no image name and is in range 0x10000000-0x80000000
+            if 0x10000000 <= addr < 0x80000000 and size > 0x10000:
+                heap_regions.append(region)
+                continue
+            
+            # DLLs and other modules
+            if size > 0x10000:
+                dll_regions.append(region)
+            else:
+                other_regions.append(region)
+        
+        # Sort each category by size (larger first - more likely to contain data)
+        heap_regions.sort(key=lambda r: r['size'], reverse=True)
+        dll_regions.sort(key=lambda r: r['size'], reverse=True)
+        
+        # Combine in priority order
+        result = prioritized + heap_regions + dll_regions + other_regions
+        
+        logger.debug(
+            "Region prioritization: %d total → %d prioritized "
+            "(%d exe, %d heap, %d dll, %d other, %d skipped)",
+            len(regions), len(result),
+            len(prioritized), len(heap_regions), len(dll_regions),
+            len(other_regions), len(regions) - len(result)
+        )
+        
+        return result
+    
+    def suggest_value_type(
+        self,
+        address: int,
+        results: Optional[List[ScanResult]] = None
+    ) -> str:
+        """
+        Suggest the likely type of value at an address based on heuristics.
+        
+        Uses pattern recognition to classify values as:
+        - Health: Typically 0-1000 range, often floats or integers
+        - Gold/Currency: Typically large integers (1000+), increases/decreases
+        - Ammunition: Small integers (0-999), discrete values
+        - Mana/Energy: 0-100 or 0-1000 range, often regenerates
+        - Unknown: Doesn't match known patterns
+        
+        Args:
+            address: Address to analyze
+            results: Optional list of scan results for context
+            
+        Returns:
+            str: Suggested value type description
+        """
+        if not self.is_attached():
+            return "Unknown (not attached)"
+        
+        # Read the current value
+        current_value = None
+        value_type = ValueType.INT_32  # Default assumption
+        
+        # Try reading as different types
+        try:
+            int_val = self.read_value(address, ValueType.INT_32)
+            float_val = self.read_value(address, ValueType.FLOAT)
+            
+            if int_val is not None:
+                current_value = int_val
+                value_type = ValueType.INT_32
+            elif float_val is not None:
+                current_value = float_val
+                value_type = ValueType.FLOAT
+        except Exception:
+            return "Unknown (read failed)"
+        
+        if current_value is None:
+            return "Unknown (invalid address)"
+        
+        # Analyze the value
+        suggestions = []
+        
+        # Health detection (0-1000 range common for health)
+        if isinstance(current_value, (int, float)):
+            if 0 <= current_value <= 100:
+                suggestions.append(("Health (0-100 range)", 0.7))
+            elif 0 <= current_value <= 1000:
+                suggestions.append(("Health/Gold (0-1000 range)", 0.6))
+            
+            # Very large values often gold or points
+            if current_value >= 10000:
+                suggestions.append(("Gold/Points (large value)", 0.8))
+            
+            # Small discrete values often ammunition or counts
+            if isinstance(current_value, int) and 0 <= current_value <= 999:
+                suggestions.append(("Ammunition/Count (small integer)", 0.6))
+            
+            # Check if value is a "round" number (common for currency)
+            if isinstance(current_value, int) and current_value % 100 == 0:
+                suggestions.append(("Currency (round number)", 0.5))
+        
+        # Float-specific heuristics
+        if isinstance(current_value, float):
+            # Values close to 1.0 often multipliers or normalized stats
+            if 0.9 <= current_value <= 1.1:
+                suggestions.append(("Multiplier/Scale (near 1.0)", 0.7))
+            
+            # Time-related values (seconds/frames)
+            if current_value > 0 and current_value < 10:
+                suggestions.append(("Timer/Cooldown (small float)", 0.5))
+        
+        # If we have scan history, use behavior patterns
+        if results and len(results) > 0:
+            # Count how many results are in similar ranges
+            similar_range = sum(
+                1 for r in results
+                if isinstance(r.value, (int, float))
+                and abs(float(r.value) - float(current_value)) < float(current_value) * 0.1
+            )
+            
+            if similar_range > len(results) * 0.5:
+                suggestions.append(("Common game stat (many similar values)", 0.6))
+        
+        # Return best suggestion
+        if suggestions:
+            suggestions.sort(key=lambda x: x[1], reverse=True)
+            return f"{suggestions[0][0]} (value={current_value})"
+        
+        return f"Unknown type (value={current_value})"
+    
+    def _get_cache_path(self, label: str) -> Path:
+        """Get the cache file path for a scan label."""
+        safe_label = "".join(c for c in label if c.isalnum() or c in ('-', '_'))
+        return self._cache_dir / f"cache_{safe_label}.json"
+    
+    def _load_scan_cache(self, label: str) -> Optional[Dict[str, Any]]:
+        """
+        Load cached scan data for a label.
+        
+        Args:
+            label: Semantic scan label (e.g., 'gold', 'health')
+            
+        Returns:
+            Cached data dict or None if not found/expired
+        """
+        if not label:
+            return None
+        
+        cache_path = self._get_cache_path(label)
+        
+        if not cache_path.exists():
+            return None
+        
+        try:
+            with open(cache_path, 'r') as f:
+                cache_data = json.load(f)
+            
+            # Check if cache is still valid (within 24 hours)
+            from datetime import datetime, timedelta
+            timestamp = datetime.fromisoformat(cache_data.get('timestamp', ''))
+            if datetime.now() - timestamp > timedelta(hours=24):
+                logger.debug("Scan cache expired for label '%s'", label)
+                return None
+            
+            logger.info(
+                "Loaded scan cache for '%s': %d regions from %s",
+                label,
+                len(cache_data.get('regions', [])),
+                cache_data.get('game_version', 'unknown')
+            )
+            
+            return cache_data
+            
+        except Exception as e:
+            logger.debug("Failed to load scan cache: %s", e)
+            return None
+    
+    def _save_scan_cache(
+        self,
+        label: str,
+        regions: List[MemoryRegion],
+        results: List[ScanResult]
+    ) -> None:
+        """
+        Save scan results to cache.
+        
+        Args:
+            label: Semantic scan label
+            regions: Memory regions that were scanned
+            results: Scan results to cache
+        """
+        if not label:
+            return
+        
+        try:
+            from datetime import datetime
+            
+            cache_data = {
+                'label': label,
+                'timestamp': datetime.now().isoformat(),
+                'game_version': 'unknown',  # Could be determined from process
+                'pid': self.process_manager.pid,
+                'regions': [
+                    {'address': r['address'], 'size': r['size']}
+                    for r in regions
+                ],
+                'result_count': len(results),
+                'result_addresses': [r.address for r in results[:100]]  # Cache first 100
+            }
+            
+            cache_path = self._get_cache_path(label)
+            with open(cache_path, 'w') as f:
+                json.dump(cache_data, f, indent=2)
+            
+            logger.debug(
+                "Saved scan cache for '%s': %d regions, %d results",
+                label, len(regions), len(results)
+            )
+            
+        except Exception as e:
+            logger.debug("Failed to save scan cache: %s", e)
     
     def _pack_value(self, value: ScanValue, value_type: ValueType) -> bytes:
         """Pack a value into bytes."""
@@ -235,11 +513,14 @@ class MemoryScanner:
         start_time = time.monotonic()
         
         try:
-            # Get memory regions
-            regions = backend.get_readable_regions()
+            # Get memory regions and apply prioritization
+            all_regions = backend.get_readable_regions()
             
-            if not regions:
+            if not all_regions:
                 return 0
+            
+            # Apply region prioritization for faster scanning
+            regions = self.get_prioritized_regions(all_regions)
             
             # Prepare scan parameters
             value_bytes = self._pack_value(value, value_type)
@@ -619,6 +900,90 @@ class MemoryScanner:
     def get_result_count(self) -> int:
         """Get number of scan results."""
         return len(self.results)
+    
+    def suggest_value_type(
+        self,
+        address: int,
+        results: Optional[List[ScanResult]] = None,
+    ) -> Optional[str]:
+        """
+        Suggest the type of value at an address based on heuristic analysis.
+        
+        Uses behavioral patterns and context to classify values as:
+        - Health: Values that decrease when damaged, typically 100-1000 range
+        - Gold/Currency: Large integer values that decrease on spending
+        - Ammunition: Integer values that decrease in discrete amounts
+        - Timer: Values that count down regularly
+        - Flag: Binary or small integer values
+        
+        Args:
+            address: Address to analyze
+            results: Optional list of scan results for context
+            
+        Returns:
+            Optional[str]: Suggested type or None if cannot determine
+        """
+        if not self.backend or not self.is_attached():
+            return None
+        
+        # Read current value
+        current_value = None
+        try:
+            # Try reading as int32 first
+            data = self.backend.read_bytes(address, 4)
+            if data:
+                current_value = struct.unpack('<i', data)[0]
+        except Exception:
+            return None
+        
+        if current_value is None:
+            return None
+        
+        # Heuristic classification
+        suggestions = []
+        
+        # Health heuristic: 100-1000 range, common in games
+        if 50 <= current_value <= 10000:
+            suggestions.append(('Health', 0.6))
+        
+        # Gold heuristic: Large values, typically > 100
+        if current_value >= 100:
+            suggestions.append(('Gold/Currency', 0.5))
+        
+        # Ammunition heuristic: Discrete values, typically 1-999
+        if 1 <= current_value <= 999:
+            suggestions.append(('Ammunition', 0.4))
+        
+        # Timer heuristic: Small positive integers
+        if 0 <= current_value <= 100:
+            suggestions.append(('Timer', 0.3))
+        
+        # Flag/boolean heuristic: 0 or 1
+        if current_value in (0, 1):
+            suggestions.append(('Flag/Boolean', 0.7))
+        
+        # Check scan history for behavioral patterns
+        if results:
+            for result in results:
+                if result.address == address and result.previous_value is not None:
+                    prev = result.previous_value
+                    curr = result.value
+                    
+                    # Decreasing value (likely health, ammo, or resource)
+                    if isinstance(curr, (int, float)) and isinstance(prev, (int, float)):
+                        if curr < prev:
+                            suggestions.append(('Resource (decreasing)', 0.5))
+                        
+                        # Large decrease (likely damage or spending)
+                        if prev - curr > 10:
+                            suggestions.append(('Health/Damage', 0.6))
+        
+        # Return best suggestion
+        if suggestions:
+            suggestions.sort(key=lambda x: x[1], reverse=True)
+            return suggestions[0][0]
+        
+        return None
     
     def scan_signature(
         self,

@@ -213,38 +213,41 @@ class TestMemoryBackend:
 
         assert results == [0x1000, 0x1002]
 
-    def test_get_best_backend_prefers_procmem_on_native_linux(self):
-        from src.memory.backend import ProcMemBackend, get_best_backend
+    def test_get_best_backend_prefers_dma_on_native_linux(self):
+        from src.memory.backend import DMABackend, get_best_backend
 
         with patch('src.memory.backend.get_platform', return_value='linux'), \
              patch('src.memory.backend.is_proton', return_value=False):
-            assert get_best_backend() is ProcMemBackend
+            # DMABackend is now highest priority on all platforms
+            assert get_best_backend() is DMABackend
 
-    def test_get_best_backend_prefers_pymem_on_proton(self):
-        from src.memory.backend import PymemBackend, get_best_backend
+    def test_get_best_backend_prefers_dma_on_proton(self):
+        from src.memory.backend import DMABackend, get_best_backend
 
         with patch('src.memory.backend.get_platform', return_value='linux'), \
              patch('src.memory.backend.is_proton', return_value=True):
-            assert get_best_backend() is PymemBackend
+            # DMABackend is highest priority even on Proton
+            assert get_best_backend() is DMABackend
 
     def test_create_backend_uses_linux_priority_order(self):
-        from src.memory.backend import create_backend, ProcMemBackend
+        from src.memory.backend import create_backend, DMABackend
 
         calls = []
 
-        def procmem_open(self, pid):
-            calls.append(('ProcMemBackend', pid))
+        def dma_open(self, pid):
+            calls.append(('DMABackend', pid))
             return True
 
         with patch('src.memory.backend.get_platform', return_value='linux'), \
              patch('src.memory.backend.is_proton', return_value=False), \
-             patch('src.memory.backend.ProcMemBackend.open', new=procmem_open), \
+             patch('src.memory.backend.DMABackend.open', new=dma_open), \
+             patch('src.memory.backend.ProcMemBackend.open', side_effect=AssertionError("ProcMem should not be tried first")), \
              patch('src.memory.backend.PymemBackend.open', side_effect=AssertionError("Pymem should not be tried first")), \
              patch('src.memory.backend.PyMemoryEditorBackend.open', side_effect=AssertionError("PyMemoryEditor should not be tried first")):
             backend = create_backend(4242)
 
-        assert isinstance(backend, ProcMemBackend)
-        assert calls == [('ProcMemBackend', 4242)]
+        assert isinstance(backend, DMABackend)
+        assert calls == [('DMABackend', 4242)]
 
     def test_procmem_regions_skip_malformed_lines(self):
         from src.memory.backend import ProcMemBackend

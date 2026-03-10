@@ -11,6 +11,9 @@ _LAZY_EXPORTS = {
     'FileEditorTab': '.file_editor_tab',
     'TrainerTab': '.trainer_tab',
     'SettingsTab': '.settings_tab',
+    'BattleMapOverlay': '.battle_overlay',
+    'PresetManagerTab': '.preset_manager',
+    'NapoleonControlPanel': '.napoleon_panel',
 }
 
 

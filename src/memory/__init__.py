@@ -12,10 +12,16 @@ from .advanced import (
     PointerResolver, PointerChain,
     AOBScanner, AOBPattern,
     ChunkedScanner,
+    VMTHooker, IATHooker, HookManager, HookChainEntry,
 )
 from .signatures import SignatureDatabase, SignatureEntry, ChainEntry, PatternMetadata
 from .speedhack import SpeedhackManager
 from .teleport import TeleportManager, Coordinates, TeleportTarget
+from .watchpoints import (
+    WatchpointManager, ConditionalTriggerManager,
+    MemoryWatchpoint, TriggerAction, ConditionType,
+)
+from .ml_predictor import MLPredictor
 
 __all__ = [
     'ProcessManager',
@@ -41,4 +47,14 @@ __all__ = [
     'TeleportManager',
     'Coordinates',
     'TeleportTarget',
+    'VMTHooker',
+    'IATHooker',
+    'HookManager',
+    'HookChainEntry',
+    'WatchpointManager',
+    'ConditionalTriggerManager',
+    'MemoryWatchpoint',
+    'TriggerAction',
+    'ConditionType',
+    'MLPredictor',
 ]

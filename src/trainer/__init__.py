@@ -7,6 +7,8 @@ from .hotkeys import HotkeyManager, CheatHotkeys
 from .cheats import TrainerCheats
 from .overlay import CheatOverlay
 from .effects_overlay import EffectsOverlay
+from .background import BackgroundTrainer
+from .sync import CheatSyncManager
 
 __all__ = [
     'HotkeyManager',
@@ -14,4 +16,6 @@ __all__ = [
     'TrainerCheats',
     'CheatOverlay',
     'EffectsOverlay',
+    'BackgroundTrainer',
+    'CheatSyncManager',
 ]

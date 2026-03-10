@@ -329,6 +329,115 @@ def check_memory_access_permissions() -> Dict[str, Any]:
     return result
 
 
+def get_linux_permission_commands() -> Dict[str, str]:
+    """
+    Get commands to fix Linux memory write permissions.
+    
+    Returns:
+        Dict with command names and their descriptions
+    """
+    if get_platform() != 'linux':
+        return {}
+    
+    return {
+        'sudo': 'Run the trainer with sudo privileges',
+        'command_sudo': 'sudo python3 src/main.py --trainer',
+        
+        'setcap': 'Grant ptrace capability to Python binary (persistent)',
+        'command_setcap': 'sudo setcap cap_sys_ptrace=eip $(which python3)',
+        
+        'pkexec': 'Use PolicyKit to run with elevated privileges',
+        'command_pkexec': 'pkexec python3 src/main.py --trainer',
+        
+        'ptrace_disable': 'Temporarily disable ptrace restrictions (requires reboot to restore)',
+        'command_ptrace': 'echo 0 | sudo tee /proc/sys/kernel/yama/ptrace_scope',
+        
+        'save_script': 'Save these commands to a script for easy execution',
+        'command_script': 'fix_permissions.sh',
+    }
+
+
+def save_permission_script(output_path: Optional[str] = None) -> Path:
+    """
+    Save a shell script with permission fix commands.
+    
+    Args:
+        output_path: Optional output path (default: ./fix_permissions.sh)
+        
+    Returns:
+        Path to the saved script
+    """
+    if output_path is None:
+        output_path = str(Path.cwd() / 'fix_permissions.sh')
+    
+    script_path = Path(output_path)
+    
+    script_content = """#!/bin/bash
+# Napoleon Total War Cheat Engine - Permission Fix Script
+# Run this script to fix memory access permissions on Linux
+
+set -e
+
+echo "Napoleon TW Cheat Engine - Linux Permission Fix"
+echo "================================================"
+echo ""
+
+# Check if running as root
+if [ "$EUID" -eq 0 ]; then
+    echo "Running as root (sudo)"
+else
+    echo "This script requires sudo privileges"
+    echo "You will be prompted for your password"
+fi
+
+echo ""
+echo "Option 1: Set capabilities on Python binary (recommended)"
+echo "----------------------------------------------------------"
+echo "This grants ptrace access without running as root"
+echo ""
+
+if command -v python3 &> /dev/null; then
+    PYTHON_PATH=$(which python3)
+    echo "Setting capabilities on: $PYTHON_PATH"
+    sudo setcap cap_sys_ptrace=eip "$PYTHON_PATH"
+    echo "✓ Capabilities set successfully"
+else
+    echo "✗ python3 not found in PATH"
+fi
+
+echo ""
+echo "Option 2: Temporarily disable ptrace restrictions"
+echo "--------------------------------------------------"
+echo "This disables ptrace protection until reboot"
+echo ""
+
+read -p "Disable ptrace restrictions? (y/N) " -n 1 -r
+echo ""
+if [[ $REPLY =~ ^[Yy]$ ]]; then
+    echo 0 | sudo tee /proc/sys/kernel/yama/ptrace_scope
+    echo "✓ Ptrace scope set to 0"
+fi
+
+echo ""
+echo "Option 3: Test the trainer"
+echo "---------------------------"
+echo "You can now run the trainer normally:"
+echo "  python3 src/main.py --trainer"
+echo ""
+echo "Or with sudo if needed:"
+echo "  sudo python3 src/main.py --trainer"
+echo ""
+
+echo "Done!"
+"""
+    
+    script_path.write_text(script_content, encoding='utf-8')
+    script_path.chmod(0o755)  # Make executable
+    
+    logger.info("Permission fix script saved to %s", script_path)
+    return script_path
+
+
 def detect_display_server() -> str:
     """Detect the active Linux display server."""
     if get_platform() != 'linux':

@@ -3,10 +3,13 @@ Trainer cheat implementations for Napoleon Total War.
 Provides easy-to-use cheat activation functions.
 """
 
-from typing import Dict, Optional, Callable
+from typing import TYPE_CHECKING, Dict, Optional, Callable
 from dataclasses import dataclass
 
 from src.memory import CheatManager, CheatType
+
+if TYPE_CHECKING:
+    from src.trainer.sync import CheatSyncManager
 
 
 @dataclass
@@ -23,14 +26,20 @@ class TrainerCheats:
     High-level cheat manager for the trainer.
     """
     
-    def __init__(self, cheat_manager: CheatManager):
+    def __init__(
+        self,
+        cheat_manager: CheatManager,
+        sync_manager: Optional['CheatSyncManager'] = None,
+    ):
         """
         Initialize trainer cheats.
         
         Args:
             cheat_manager: CheatManager instance
+            sync_manager: Optional CheatSyncManager instance
         """
         self.cheat_manager = cheat_manager
+        self.sync_manager = sync_manager
         self.cheat_status: Dict[CheatType, CheatStatus] = {}
         self.custom_cheats: Dict[str, Callable] = {}
         
@@ -50,13 +59,19 @@ class TrainerCheats:
                 description=cheat['description']
             )
     
-    def toggle_cheat(self, cheat_type: CheatType, address: Optional[int] = None) -> bool:
+    def toggle_cheat(
+        self,
+        cheat_type: CheatType,
+        address: Optional[int] = None,
+        sync_to_peers: bool = True,
+    ) -> bool:
         """
         Toggle a cheat on/off.
         
         Args:
             cheat_type: Type of cheat to toggle
             address: Optional memory address
+            sync_to_peers: Whether to broadcast to other instances
             
         Returns:
             bool: True if toggled successfully
@@ -67,6 +82,13 @@ class TrainerCheats:
             # Update status
             if cheat_type in self.cheat_status:
                 is_active = self.cheat_manager.is_cheat_active(cheat_type)
+                
+                # Sync to peers if enabled
+                if sync_to_peers and self.sync_manager:
+                    self.sync_manager.broadcast_cheat_toggle(
+                        cheat_type.value,
+                        is_active
+                    )
                 self.cheat_status[cheat_type].active = is_active
                 
                 action = "activated" if is_active else "deactivated"

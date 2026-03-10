@@ -3,10 +3,13 @@ Game state detection for Napoleon Total War.
 Monitors process lifecycle and detects campaign vs battle mode.
 """
 
+import json
 import logging
 import threading
 import time
-from typing import Optional, Callable, Dict, Any
+from datetime import datetime
+from pathlib import Path
+from typing import Optional, Callable, Dict, Any, List
 from enum import Enum
 
 import psutil
@@ -59,6 +62,14 @@ class GameStateMonitor:
         self._on_game_stopped: Optional[Callable[[], None]] = None
         self._on_mode_changed: Optional[Callable[[GameMode, GameMode], None]] = None
         self._on_state_update: Optional[Callable[[Dict[str, Any]], None]] = None
+        self._on_game_crashed: Optional[Callable[[Dict[str, Any]], None]] = None
+        
+        # Crash recovery state
+        self._saved_cheat_state: Dict[str, Any] = {}
+        self._last_known_good_pid: Optional[int] = None
+        self._crash_detected = False
+        self._state_file = Path.cwd() / '.cache' / 'game_state.json'
+        self._state_file.parent.mkdir(parents=True, exist_ok=True)
     
     @property
     def mode(self) -> GameMode:
@@ -128,19 +139,35 @@ class GameStateMonitor:
             # Game not running
             if self._current_mode != GameMode.NOT_RUNNING:
                 old_mode = self._current_mode
+                old_pid = self._pid
+                
                 self._current_mode = GameMode.NOT_RUNNING
                 self._process = None
                 self._pid = None
                 
-                logger.info("Game stopped")
-
-                # Emit event
+                # Game was running, now it's stopped - this is a crash/unexpected exit
+                logger.warning("Game process detached suddenly (possible crash, PID: %d)", old_pid)
+                
+                # Save last known good PID for recovery
+                self._last_known_good_pid = old_pid
+                self._crash_detected = True
+                
+                # Emit crash detection event
+                crash_data = {
+                    'pid': old_pid,
+                    'crash_detected': True,
+                    'mode': old_mode.value,
+                    'timestamp': datetime.now().isoformat(),
+                }
+                
                 EventEmitter().emit(
                     EventType.PROCESS_DETACHED,
-                    data={'pid': self._pid},
+                    data=crash_data,
                     source='game_state_monitor'
                 )
 
+                if self._on_game_crashed:
+                    self._on_game_crashed(crash_data)
                 if self._on_game_stopped:
                     self._on_game_stopped()
                 if self._on_mode_changed:
@@ -353,3 +380,104 @@ class GameStateMonitor:
             'is_running': self.is_running,
             'monitoring': self._running,
         }
+    
+    def save_cheat_state(self, cheat_state: Dict[str, Any]) -> None:
+        """
+        Save cheat state for crash recovery.
+        
+        Args:
+            cheat_state: Dictionary of active cheats to save
+        """
+        try:
+            self._saved_cheat_state = {
+                'timestamp': datetime.now().isoformat(),
+                'pid': self._pid,
+                'mode': self._current_mode.value,
+                'active_cheats': cheat_state,
+            }
+            
+            # Persist to disk
+            with open(self._state_file, 'w') as f:
+                json.dump(self._saved_cheat_state, f, indent=2)
+            
+            logger.info(
+                "Saved cheat state: %d active cheats (PID %d)",
+                len(cheat_state), self._pid or 0
+            )
+            
+        except Exception as e:
+            logger.debug("Failed to save cheat state: %s", e)
+    
+    def restore_cheat_state(self) -> Optional[Dict[str, Any]]:
+        """
+        Restore previously saved cheat state.
+        
+        Returns:
+            Dict of active cheats or None if no saved state
+        """
+        # Try memory first
+        if self._saved_cheat_state.get('active_cheats'):
+            logger.info(
+                "Restoring %d cheats from memory (PID %d)",
+                len(self._saved_cheat_state['active_cheats']),
+                self._saved_cheat_state.get('pid', 0)
+            )
+            return self._saved_cheat_state['active_cheats']
+        
+        # Try disk
+        if not self._state_file.exists():
+            return None
+        
+        try:
+            with open(self._state_file, 'r') as f:
+                saved = json.load(f)
+            
+            # Check if state is recent (within 1 hour)
+            from datetime import datetime, timedelta
+            timestamp = datetime.fromisoformat(saved.get('timestamp', ''))
+            if datetime.now() - timestamp > timedelta(hours=1):
+                logger.debug("Saved cheat state is stale (>1 hour old)")
+                return None
+            
+            self._saved_cheat_state = saved
+            logger.info(
+                "Restored %d cheats from disk (PID %d, %s mode)",
+                len(saved.get('active_cheats', [])),
+                saved.get('pid', 0),
+                saved.get('mode', 'unknown')
+            )
+            
+            return saved.get('active_cheats')
+            
+        except Exception as e:
+            logger.debug("Failed to restore cheat state: %s", e)
+            return None
+    
+    def clear_saved_state(self) -> None:
+        """Clear saved cheat state."""
+        self._saved_cheat_state = {}
+        if self._state_file.exists():
+            try:
+                self._state_file.unlink()
+            except Exception:
+                pass
+        logger.debug("Cleared saved cheat state")
+    
+    def has_saved_state(self) -> bool:
+        """Check if there's a saved cheat state to restore."""
+        return bool(self._saved_cheat_state.get('active_cheats'))
+    
+    def set_callbacks(
+        self,
+        on_game_started: Optional[Callable[[int], None]] = None,
+        on_game_stopped: Optional[Callable[[], None]] = None,
+        on_mode_changed: Optional[Callable[[GameMode, GameMode], None]] = None,
+        on_state_update: Optional[Callable[[Dict[str, Any]], None]] = None,
+        on_game_crashed: Optional[Callable[[Dict[str, Any]], None]] = None,
+    ) -> None:
+        """Set event callbacks."""
+        self._on_game_started = on_game_started
+        self._on_game_stopped = on_game_stopped
+        self._on_mode_changed = on_mode_changed
+        self._on_state_update = on_state_update
+        self._on_game_crashed = on_game_crashed

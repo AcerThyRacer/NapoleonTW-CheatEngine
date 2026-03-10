@@ -67,6 +67,37 @@ def main():
     )
     
     parser.add_argument(
+        '--background',
+        action='store_true',
+        help='Launch background trainer (headless mode with hotkeys)'
+    )
+    
+    parser.add_argument(
+        '--panel',
+        action='store_true',
+        help='Launch Napoleon Control Panel (animated UI)'
+    )
+    
+    parser.add_argument(
+        '--debug',
+        action='store_true',
+        help='Enable debug logging'
+    )
+    
+    parser.add_argument(
+        '--verbose',
+        action='store_true',
+        help='Enable verbose logging (DEBUG level)'
+    )
+    
+    parser.add_argument(
+        '--ini',
+        type=str,
+        default='napoleon.ini',
+        help='Path to configuration INI file (default: napoleon.ini)'
+    )
+    
+    parser.add_argument(
         '--version',
         action='version',
         version=f'%(prog)s {__version__}'
@@ -75,8 +106,33 @@ def main():
     args = parser.parse_args()
     
     # Default to GUI if no option specified
-    if not any([args.gui, args.cli, args.trainer, args.memory_scanner]):
+    if not any([args.gui, args.cli, args.trainer, args.memory_scanner, args.background, args.panel]):
         args.gui = True
+    
+    # Parse INI configuration if it exists
+    log_level = logging.DEBUG if (args.debug or args.verbose) else logging.INFO
+    ini_path = Path(args.ini)
+    
+    if ini_path.exists():
+        try:
+            import configparser
+            config = configparser.ConfigParser()
+            config.read(ini_path)
+            
+            if 'logging' in config:
+                level_str = config.get('logging', 'level', fallback='INFO')
+                if not (args.debug or args.verbose):
+                    log_level = getattr(logging, level_str.upper(), logging.INFO)
+        except Exception as e:
+            logger.debug("Failed to parse INI config: %s", e)
+    
+    # Initialize logging with project root directory
+    from src.utils.logging_config import setup_logging
+    setup_logging(level=log_level, log_dir=Path.cwd())
+    
+    # Initialize async error reporter
+    from src.utils.error_reporter import init_error_reporter
+    init_error_reporter().start()
     
     if args.gui:
         launch_gui()
@@ -86,6 +142,10 @@ def main():
         launch_trainer()
     elif args.memory_scanner:
         launch_memory_scanner()
+    elif args.background:
+        launch_background_trainer()
+    elif args.panel:
+        launch_panel()
 
 
 def launch_gui():
@@ -195,6 +255,55 @@ def launch_trainer():
             hotkey_manager.stop()
         if scanner:
             scanner.detach()
+
+
+def launch_background_trainer():
+    """Launch background trainer mode."""
+    print("Napoleon Total War Background Trainer")
+    print("=" * 50)
+    print("\nStarting in background mode...")
+    print("Hotkeys are active. Press Ctrl+F10 to open the GUI.")
+    print("Press Ctrl+C to exit\n")
+    
+    try:
+        from src.trainer.background import BackgroundTrainer
+        
+        trainer = BackgroundTrainer()
+        trainer.start()
+        
+        # Keep running
+        import time
+        while True:
+            time.sleep(1)
+            
+    except KeyboardInterrupt:
+        print("\nBackground trainer stopped by user")
+    except Exception as e:
+        print(f"\nError: {e}")
+        import traceback
+        traceback.print_exc()
+        sys.exit(1)
+
+
+def launch_panel():
+    """Launch Napoleon Control Panel (animated GUI)."""
+    print("Napoleon Total War - Napoleon's Command Panel")
+    print("=" * 50)
+    print("\n👑 Launching animated control panel...\n")
+    
+    try:
+        from src.gui.napoleon_panel import main as panel_main
+        panel_main()
+    except ImportError as e:
+        print(f"Error: Napoleon Control Panel requires PyQt6")
+        print(f"Install with: pip install PyQt6")
+        print(f"\nDetails: {e}")
+        sys.exit(1)
+    except Exception as e:
+        print(f"\nError launching panel: {e}")
+        import traceback
+        traceback.print_exc()
+        sys.exit(1)
 
 
 def launch_memory_scanner():

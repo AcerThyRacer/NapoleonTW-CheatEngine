@@ -23,6 +23,8 @@ from .memory_tab import MemoryScannerTab
 from .file_editor_tab import FileEditorTab
 from .trainer_tab import TrainerTab
 from .settings_tab import SettingsTab
+from .battle_overlay import BattleMapOverlay
+from .preset_manager import PresetManagerTab
 from src.config import ConfigManager
 from .setup_wizard import run_first_run_setup
 
@@ -81,9 +83,23 @@ class MainWindow(QMainWindow):
         self.trainer_tab = TrainerTab()
         self.tab_widget.addTab(self.trainer_tab, "🎮 Trainer")
         
+        # Preset Manager Tab
+        self.preset_tab = PresetManagerTab(
+            cheat_manager=self.trainer_tab.cheat_manager
+        )
+        self.tab_widget.addTab(self.preset_tab, "📦 Presets")
+
         # Settings Tab
         self.settings_tab = SettingsTab()
         self.tab_widget.addTab(self.settings_tab, "⚙️ Settings")
+
+        # Battle Map Overlay (hidden by default)
+        self.battle_overlay = BattleMapOverlay(
+            cheat_manager=self.trainer_tab.cheat_manager
+        )
+        self.battle_overlay.overlay_closed.connect(
+            lambda: self.status_bar.showMessage("Battle overlay hidden")
+        )
         
         # Connect tab change event
         self.tab_widget.currentChanged.connect(self._on_tab_changed)
@@ -99,8 +115,19 @@ class MainWindow(QMainWindow):
         exit_action.setShortcut("Ctrl+Q")
         exit_action.triggered.connect(self.close)
         
+        # View menu
+        view_menu = menubar.addMenu("&View")
+        
+        panel_action = view_menu.addAction("&Napoleon Control Panel")
+        panel_action.setShortcut("Ctrl+Shift+P")
+        panel_action.triggered.connect(self._launch_panel)
+        
         # Tools menu
         tools_menu = menubar.addMenu("&Tools")
+        
+        overlay_action = tools_menu.addAction("&Battle Map Overlay")
+        overlay_action.setShortcut("Ctrl+Shift+O")
+        overlay_action.triggered.connect(self._toggle_battle_overlay)
         
         # Help menu
         help_menu = menubar.addMenu("&Help")
@@ -236,12 +263,38 @@ class MainWindow(QMainWindow):
             """
         )
     
+    def _toggle_battle_overlay(self) -> None:
+        """Toggle the battle map overlay on/off."""
+        if self.battle_overlay.isVisible():
+            self.battle_overlay.hide_overlay()
+            self.status_bar.showMessage("Battle overlay hidden")
+        else:
+            self.battle_overlay.show_overlay()
+            self.status_bar.showMessage("Battle overlay shown (Ctrl+Shift+O to toggle)")
+    
+    def _launch_panel(self) -> None:
+        """Launch the Napoleon Control Panel in a new window."""
+        try:
+            from .napoleon_panel import NapoleonControlPanel
+            self.panel_window = NapoleonControlPanel(config_manager=self.settings_tab.config_manager if hasattr(self.settings_tab, 'config_manager') else None)
+            self.panel_window.show()
+            self.status_bar.showMessage("Napoleon Control Panel opened (Ctrl+Shift+P)")
+        except ImportError:
+            self.status_bar.showMessage("PyQt6 required for Napoleon Control Panel")
+            QMessageBox.warning(
+                self,
+                "PyQt6 Required",
+                "The Napoleon Control Panel requires PyQt6. Please install it with: pip install PyQt6"
+            )
+
     def closeEvent(self, event) -> None:
         """Handle window close event."""
         # Clean up resources
         self.memory_tab.cleanup()
         self.file_editor_tab.cleanup()
         self.trainer_tab.cleanup()
+        self.preset_tab.cleanup()
+        self.battle_overlay.cleanup()
         
         event.accept()
 

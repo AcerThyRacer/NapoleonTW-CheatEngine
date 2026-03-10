@@ -26,6 +26,7 @@ _DEFAULT_ADDRESS_EXPORT = _TABLES_DIR / 'napoleon_addresses.json'
 class CheatType(Enum):
     """Types of cheats available."""
 
+    # Original cheats
     INFINITE_GOLD = 'infinite_gold'
     UNLIMITED_MOVEMENT = 'unlimited_movement'
     INSTANT_CONSTRUCTION = 'instant_construction'
@@ -37,22 +38,56 @@ class CheatType(Enum):
     ONE_HIT_KILL = 'one_hit_kill'
     SUPER_SPEED = 'super_speed'
 
+    # Extended campaign cheats
     INFINITE_ACTION_POINTS = 'infinite_action_points'
     MAX_RESEARCH_POINTS = 'max_research_points'
     INSTANT_AGENT_TRAINING = 'instant_agent_training'
     FREE_DIPLOMATIC_ACTIONS = 'free_diplomatic_actions'
     INVISIBLE_ARMIES = 'invisible_armies'
 
+    # Extended battle cheats
     INFINITE_MORALE = 'infinite_morale'
     INSTANT_RELOAD = 'instant_reload'
     RANGE_BOOST = 'range_boost'
     SPEED_BOOST = 'speed_boost'
     INFINITE_UNIT_HEALTH = 'infinite_unit_health'
 
+    # Strategic cheats
     INSTANT_VICTORY = 'instant_victory'
     MAX_PUBLIC_ORDER = 'max_public_order'
     ZERO_ATTRITION = 'zero_attrition'
     FREE_UPGRADES = 'free_upgrades'
+
+    # New cheat categories (PR #29)
+    # AI Manipulation
+    ENHANCED_AI = 'enhanced_ai'
+    AI_DISABLED = 'ai_disabled'
+    PERFECT_AI_ACCURACY = 'perfect_ai_accuracy'
+
+    # Time Control
+    TIME_SCALE = 'time_scale'
+    PAUSE_GAME = 'pause_game'
+    FAST_FORWARD = 'fast_forward'
+
+    # Unit Spawning/Modification
+    SPAWN_ELITE_GUARD = 'spawn_elite_guard'
+    MAX_UNIT_VETERANCY = 'max_unit_veterancy'
+    INSTANT_UNIT_RECRUITMENT = 'instant_unit_recruitment'
+
+    # Weather & Environment
+    CLEAR_WEATHER = 'clear_weather'
+    FOG_IMMUNITY = 'fog_immunity'
+    TERRAIN_ADVANTAGE = 'terrain_advantage'
+
+    # Camera & Visual
+    FREE_CAMERA = 'free_camera'
+    REVEAL_MAP = 'reveal_map'
+    ENHANCED_VISIBILITY = 'enhanced_visibility'
+
+    # Additional cheats from PR #24
+    INSTANT_RECRUITMENT = 'instant_recruitment'
+    NO_FOG_OF_WAR = 'no_fog_of_war'
+    UNLIMITED_AGENTS = 'unlimited_agents'
 
 
 @dataclass
@@ -514,6 +549,220 @@ class CheatManager:
                 pointer_chains=['veterancy_upgrade_cost'],
                 aob_patterns=['veterancy_upgrade_cost_write'],
                 scan_key='veterancy_upgrade_cost',
+            ),
+
+            # New cheat categories (PR #29)
+            # AI Manipulation
+            CheatDefinition(
+                cheat_type=CheatType.ENHANCED_AI,
+                name="Enhanced AI",
+                description="Improve AI decision making and tactics",
+                value_type=ValueType.INT_32,
+                default_value=1,
+                cheat_value=3,
+                mode='campaign',
+                pointer_chains=['ai_difficulty'],
+                scan_key='ai_difficulty',
+            ),
+            CheatDefinition(
+                cheat_type=CheatType.AI_DISABLED,
+                name="AI Disabled",
+                description="Disable AI opponent actions",
+                value_type=ValueType.INT_32,
+                default_value=1,
+                cheat_value=0,
+                mode='battle',
+                pointer_chains=['ai_enabled'],
+                scan_key='ai_enabled',
+            ),
+            CheatDefinition(
+                cheat_type=CheatType.PERFECT_AI_ACCURACY,
+                name="Perfect AI Accuracy",
+                description="Set AI accuracy to maximum",
+                value_type=ValueType.FLOAT,
+                default_value=0.5,
+                cheat_value=1.0,
+                mode='battle',
+                pointer_chains=['ai_accuracy'],
+                scan_key='ai_accuracy',
+            ),
+
+            # Time Control
+            CheatDefinition(
+                cheat_type=CheatType.TIME_SCALE,
+                name="Time Scale",
+                description="Control game time speed",
+                value_type=ValueType.FLOAT,
+                default_value=1.0,
+                cheat_value=2.0,
+                mode='campaign',
+                pointer_chains=['time_scale'],
+                scan_key='time_scale',
+            ),
+            CheatDefinition(
+                cheat_type=CheatType.PAUSE_GAME,
+                name="Pause Game",
+                description="Pause game execution",
+                value_type=ValueType.INT_32,
+                default_value=0,
+                cheat_value=1,
+                mode='campaign',
+                pointer_chains=['game_paused'],
+                scan_key='game_paused',
+            ),
+            CheatDefinition(
+                cheat_type=CheatType.FAST_FORWARD,
+                name="Fast Forward",
+                description="Speed up game time",
+                value_type=ValueType.FLOAT,
+                default_value=1.0,
+                cheat_value=5.0,
+                mode='campaign',
+                pointer_chains=['time_scale'],
+                scan_key='time_scale',
+            ),
+
+            # Unit Spawning/Modification
+            CheatDefinition(
+                cheat_type=CheatType.SPAWN_ELITE_GUARD,
+                name="Spawn Elite Guard",
+                description="Spawn elite bodyguard unit",
+                value_type=ValueType.INT_32,
+                default_value=0,
+                cheat_value=1,
+                mode='battle',
+                pointer_chains=['unit_spawn_flag'],
+                scan_key='unit_spawn',
+            ),
+            CheatDefinition(
+                cheat_type=CheatType.MAX_UNIT_VETERANCY,
+                name="Max Unit Veterancy",
+                description="Set selected unit to maximum veterancy",
+                value_type=ValueType.INT_32,
+                default_value=0,
+                cheat_value=3,
+                mode='battle',
+                pointer_chains=['unit_veterancy'],
+                scan_key='unit_veterancy',
+            ),
+            CheatDefinition(
+                cheat_type=CheatType.INSTANT_UNIT_RECRUITMENT,
+                name="Instant Unit Recruitment",
+                description="Complete unit recruitment instantly",
+                value_type=ValueType.INT_32,
+                default_value=None,
+                cheat_value=0,
+                mode='campaign',
+                pointer_chains=['recruitment_timer'],
+                scan_key='recruitment_timer',
+            ),
+
+            # Weather & Environment
+            CheatDefinition(
+                cheat_type=CheatType.CLEAR_WEATHER,
+                name="Clear Weather",
+                description="Force clear weather conditions",
+                value_type=ValueType.INT_32,
+                default_value=0,
+                cheat_value=1,
+                mode='battle',
+                pointer_chains=['weather_type'],
+                scan_key='weather_control',
+            ),
+            CheatDefinition(
+                cheat_type=CheatType.FOG_IMMUNITY,
+                name="Fog Immunity",
+                description="Ignore fog of war penalties",
+                value_type=ValueType.INT_32,
+                default_value=0,
+                cheat_value=1,
+                mode='battle',
+                pointer_chains=['fog_penalty'],
+                scan_key='fog_immunity',
+            ),
+            CheatDefinition(
+                cheat_type=CheatType.TERRAIN_ADVANTAGE,
+                name="Terrain Advantage",
+                description="Always have terrain bonus",
+                value_type=ValueType.FLOAT,
+                default_value=1.0,
+                cheat_value=2.0,
+                mode='battle',
+                pointer_chains=['terrain_modifier'],
+                scan_key='terrain_advantage',
+            ),
+
+            # Camera & Visual
+            CheatDefinition(
+                cheat_type=CheatType.FREE_CAMERA,
+                name="Free Camera",
+                description="Unlock camera boundaries",
+                value_type=ValueType.INT_32,
+                default_value=0,
+                cheat_value=1,
+                mode='battle',
+                pointer_chains=['camera_unlocked'],
+                scan_key='free_camera',
+            ),
+            CheatDefinition(
+                cheat_type=CheatType.REVEAL_MAP,
+                name="Reveal Map",
+                description="Reveal entire map",
+                value_type=ValueType.INT_32,
+                default_value=0,
+                cheat_value=1,
+                mode='campaign',
+                pointer_chains=['map_revealed'],
+                scan_key='reveal_map',
+            ),
+            CheatDefinition(
+                cheat_type=CheatType.ENHANCED_VISIBILITY,
+                name="Enhanced Visibility",
+                description="Increase visibility range",
+                value_type=ValueType.FLOAT,
+                default_value=1.0,
+                cheat_value=3.0,
+                mode='campaign',
+                pointer_chains=['visibility_range'],
+                scan_key='visibility_range',
+            ),
+
+            # Additional cheats from PR #24
+            CheatDefinition(
+                cheat_type=CheatType.INSTANT_RECRUITMENT,
+                name="Instant Recruitment",
+                description="Instantly recruit any unit",
+                value_type=ValueType.INT_32,
+                default_value=None,
+                cheat_value=0,
+                mode='campaign',
+                pointer_chains=['recruitment_timer'],
+                aob_patterns=['recruitment_decrement'],
+                scan_key='recruitment_timer',
+            ),
+            CheatDefinition(
+                cheat_type=CheatType.NO_FOG_OF_WAR,
+                name="No Fog of War",
+                description="Remove fog of war completely",
+                value_type=ValueType.INT_32,
+                default_value=0,
+                cheat_value=1,
+                mode='campaign',
+                pointer_chains=['fog_of_war_enabled'],
+                aob_patterns=['fog_of_war_check'],
+                scan_key='fog_of_war',
+            ),
+            CheatDefinition(
+                cheat_type=CheatType.UNLIMITED_AGENTS,
+                name="Unlimited Agents",
+                description="Remove agent action limits",
+                value_type=ValueType.INT_32,
+                default_value=1,
+                cheat_value=99,
+                mode='campaign',
+                pointer_chains=['agent_actions_remaining'],
+                aob_patterns=['agent_action_decrement'],
+                scan_key='agent_actions',
             ),
         ]
 
