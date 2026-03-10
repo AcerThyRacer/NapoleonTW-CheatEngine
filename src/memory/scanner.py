@@ -882,3 +882,57 @@ class MemoryScanner:
             max_results=max_results,
             timeout=timeout,
         )
+
+    def suggest_value_type(self, result: ScanResult) -> Optional[str]:
+        """
+        Analyze a scan result and suggest the most likely value classification
+        (e.g., 'Health', 'Gold', 'Ammunition') based on its memory behavior patterns
+        and data type.
+
+        Args:
+            result: The scan result to analyze.
+
+        Returns:
+            Optional[str]: Suggested type string, or None if inconclusive.
+        """
+        value = result.value
+        value_type = result.value_type
+        prev_value = result.previous_value
+
+        # Health heuristics: Usually a float. In battles, often a value between 0 and 500.
+        if value_type == ValueType.FLOAT:
+            if isinstance(value, float):
+                if 0.0 < value <= 1000.0:
+                    # Health often decreases by small fractional amounts.
+                    if prev_value is not None and isinstance(prev_value, float):
+                        if value < prev_value:
+                            return 'Health'
+                    elif prev_value is None:
+                        # If we don't have previous value but it's a reasonable float, it could still be health or morale
+                        return 'Health / Morale'
+
+        # Gold heuristics: Usually 4-byte integer. Often large numbers (e.g. >= 1000).
+        if value_type == ValueType.INT_32:
+            if isinstance(value, int):
+                if value >= 1000:
+                    # Gold often changes by large integer amounts (e.g. spending 100+ on buildings/units)
+                    if prev_value is not None and isinstance(prev_value, int):
+                        diff = abs(prev_value - value)
+                        if diff >= 50 and diff % 5 == 0:
+                            return 'Gold'
+                    elif value >= 5000:
+                        return 'Gold'
+
+        # Ammunition heuristics: Usually 4-byte integer. Small positive numbers (e.g. 1-100).
+        if value_type == ValueType.INT_32:
+            if isinstance(value, int):
+                if 0 <= value <= 200:
+                    # Ammunition decreases exactly by 1 per shot.
+                    if prev_value is not None and isinstance(prev_value, int):
+                        if prev_value - value == 1:
+                            return 'Ammunition'
+                    elif prev_value is None:
+                        # Without previous value, small integers might be ammo
+                        return 'Ammunition'
+
+        return None
