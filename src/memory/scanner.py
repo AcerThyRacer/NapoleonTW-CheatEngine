@@ -96,6 +96,10 @@ class MemoryScanner:
         self.scan_history: List[ScanHistoryEntry] = []
         self._freezer: Optional["MemoryFreezer"] = None
         
+        # Initialize ML Predictor
+        from .ml_predictor import MLPredictor
+        self.ml_predictor = MLPredictor()
+
     def attach(self) -> bool:
         """
         Attach to the process and initialize memory backend.

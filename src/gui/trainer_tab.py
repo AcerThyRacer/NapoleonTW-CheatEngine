@@ -230,7 +230,11 @@ class TrainerTab(QWidget):
             # Activate cheat
             success = self.cheat_manager.activate_cheat(cheat_type)
             if success:
-                self.status_label.setText(f"Activated: {cheat_type.value}")
+                cheat_def = self.cheat_manager._get_cheat_definition(cheat_type)
+                if cheat_def and cheat_def.name in self.cheat_manager.memory_scanner.ml_predictor.models:
+                     self.status_label.setText(f"Activated (ML Assisted): {cheat_type.value}")
+                else:
+                     self.status_label.setText(f"Activated: {cheat_type.value}")
             else:
                 # Need address - show message
                 QMessageBox.warning(
@@ -238,7 +242,8 @@ class TrainerTab(QWidget):
                     "Address Required",
                     f"This cheat requires a memory address.\n\n"
                     f"Use the Memory Scanner to find the address first, "
-                    f"then right-click and select 'Set for this Cheat'"
+                    f"then click 'Learn Selected Address' to teach the ML model "
+                    f"or right-click to 'Set for this Cheat'."
                 )
                 self.cheat_checkboxes[cheat_type].setChecked(False)
         else:

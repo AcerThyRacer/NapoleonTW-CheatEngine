@@ -46,7 +46,7 @@ class MemoryScannerTab(QWidget):
         self.results_table = QTableWidget()
         self.results_table.setColumnCount(3)
         self.results_table.setHorizontalHeaderLabels(["Address", "Value", "Type"])
-        self.results_table.horizontalHeader().stretchLastSection(True)
+        self.results_table.horizontalHeader().setStretchLastSection(True)
         layout.addWidget(QLabel("Scan Results:"))
         layout.addWidget(self.results_table)
         
@@ -152,6 +152,24 @@ class MemoryScannerTab(QWidget):
         button_layout.addWidget(self.undo_scan_btn)
         
         layout.addLayout(button_layout)
+
+        # ML Predict & Auto-Scan button
+        ml_layout = QHBoxLayout()
+        self.ml_predict_btn = QPushButton("ML Predict && Auto-Scan")
+        self.ml_predict_btn.clicked.connect(self._ml_predict_scan)
+        self.ml_predict_btn.setEnabled(False)
+        self.ml_predict_btn.setToolTip("Attach to a game process first to use ML Prediction")
+        self.ml_predict_btn.setStyleSheet("background-color: #2c3e50; color: #d4af37;")
+        ml_layout.addWidget(self.ml_predict_btn)
+
+        # Learn Address button
+        self.ml_learn_btn = QPushButton("Learn Selected Address")
+        self.ml_learn_btn.clicked.connect(self._ml_learn_address)
+        self.ml_learn_btn.setEnabled(False)
+        self.ml_learn_btn.setToolTip("Select a result to teach the ML model")
+        ml_layout.addWidget(self.ml_learn_btn)
+
+        layout.addLayout(ml_layout)
         
         group.setLayout(layout)
         return group
@@ -163,6 +181,8 @@ class MemoryScannerTab(QWidget):
         self.new_scan_btn.setToolTip(tooltip)
         self.next_scan_btn.setEnabled(attached)
         self.next_scan_btn.setToolTip(tooltip)
+        self.ml_predict_btn.setEnabled(attached)
+        self.ml_predict_btn.setToolTip("" if attached else "Attach to a game process first to use ML Prediction")
 
     def _attach_to_process(self) -> None:
         """Attach to Napoleon process."""
@@ -254,6 +274,8 @@ class MemoryScannerTab(QWidget):
         self.clear_results_btn.setToolTip("" if has_results else "No results to clear")
         self.undo_scan_btn.setEnabled(has_results)
         self.undo_scan_btn.setToolTip("" if has_results else "No scan to undo")
+        self.ml_learn_btn.setEnabled(has_results)
+        self.ml_learn_btn.setToolTip("" if has_results else "Select a result to teach the ML model")
 
         for i, result in enumerate(results):
             addr_item = QTableWidgetItem(f"0x{result.address:08X}")
@@ -274,7 +296,81 @@ class MemoryScannerTab(QWidget):
         self.clear_results_btn.setToolTip("No results to clear")
         self.undo_scan_btn.setEnabled(False)
         self.undo_scan_btn.setToolTip("No scan to undo")
+        self.ml_learn_btn.setEnabled(False)
+        self.ml_learn_btn.setToolTip("Select a result to teach the ML model")
     
+    def _ml_predict_scan(self) -> None:
+        """Use ML to predict and scan for an address."""
+        from PyQt6.QtWidgets import QInputDialog
+
+        name, ok = QInputDialog.getText(
+            self,
+            "ML Predict & Auto-Scan",
+            "Enter the name of the value to predict (e.g., 'Infinite Gold', 'Unit Health'):"
+        )
+
+        if not ok or not name:
+            return
+
+        predicted_addr = self.scanner.ml_predictor.predict(name, self.scanner)
+
+        if predicted_addr:
+            # Add to results table
+            from src.memory.scanner import ScanResult
+
+            # Use the value type from the model if available, else default to INT_32
+            model_info = self.scanner.ml_predictor.models.get(name, {})
+            val_type_str = model_info.get('value_type', '4 Bytes')
+            val_type = ValueType(val_type_str)
+
+            # Read the value at the predicted address
+            current_value = self.scanner.read_value(predicted_addr, val_type)
+
+            if current_value is not None:
+                self.scanner.results = [ScanResult(
+                    address=predicted_addr,
+                    value=current_value,
+                    value_type=val_type
+                )]
+                self._update_results_table()
+                self._show_info(f"ML successfully predicted '{name}' at 0x{predicted_addr:08X}!")
+            else:
+                self._show_error(f"ML predicted 0x{predicted_addr:08X}, but failed to read value.")
+        else:
+            self._show_error(f"ML could not confidently predict '{name}'.\nTry finding it manually and teaching the model first.")
+
+    def _ml_learn_address(self) -> None:
+        """Teach the ML model about a selected address."""
+        selected_rows = self.results_table.selectionModel().selectedRows()
+        if not selected_rows:
+            self._show_error("Please select a row first.")
+            return
+
+        row = selected_rows[0].row()
+        addr_str = self.results_table.item(row, 0).text()
+        type_str = self.results_table.item(row, 2).text()
+
+        try:
+            address = int(addr_str, 16)
+            val_type = ValueType(type_str)
+        except ValueError:
+            self._show_error("Invalid address format.")
+            return
+
+        from PyQt6.QtWidgets import QInputDialog
+        name, ok = QInputDialog.getText(
+            self,
+            "Teach ML Model",
+            "Enter a name for this value (e.g., 'Infinite Gold', 'Unit Health'):"
+        )
+
+        if ok and name:
+            success = self.scanner.ml_predictor.learn(name, address, val_type, self.scanner)
+            if success:
+                self._show_info(f"ML model successfully learned '{name}' at {addr_str}.")
+            else:
+                self._show_error("Failed to learn. Make sure the game is attached.")
+
     def _add_selected_to_cheats(self) -> None:
         """Add selected results to cheat list."""
         selected_rows = self.results_table.selectionModel().selectedRows()

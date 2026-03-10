@@ -546,6 +546,16 @@ class CheatManager:
         if not address:
             address = self._try_resolve_pointer_chain(cheat_def.cheat_type)
 
+        # ML Prediction Fallback
+        if not address:
+            predicted = self.memory_scanner.ml_predictor.predict(cheat_def.name, self.memory_scanner)
+            if predicted:
+                print(f"  🤖 ML Fallback: Predicted {cheat_def.name} at 0x{predicted:08X}")
+                # Verify the value makes sense if it has a default (optional)
+                test_val = self.memory_scanner.read_value(predicted, cheat_def.value_type)
+                if test_val is not None:
+                     address = predicted
+
         if not address:
             print(f"⚠ Could not auto-resolve address for {cheat_def.name}.")
             print(f"  Use memory scanner to find it, then pass the address.")
@@ -570,6 +580,10 @@ class CheatManager:
         }
         self._resolved_addresses[cheat_def.cheat_type] = address
         print(f"✓ {cheat_def.name} ACTIVATED at 0x{address:08X}")
+
+        # Train the ML model on the successful address
+        self.memory_scanner.ml_predictor.learn(cheat_def.name, address, cheat_def.value_type, self.memory_scanner)
+
         return True
 
     def _activate_aob_cheat(self, cheat_def: CheatDefinition) -> bool:
@@ -625,6 +639,10 @@ class CheatManager:
             ],
         }
         print(f"✓ {cheat_def.name} PATCHED at 0x{match_address:08X}")
+
+        # Train the ML model on the successful address
+        self.memory_scanner.ml_predictor.learn(cheat_def.name, match_address, cheat_def.value_type, self.memory_scanner)
+
         return True
 
     def _activate_code_cave_cheat(
@@ -657,6 +675,10 @@ class CheatManager:
             'pattern_name': pattern_name,
         }
         print(f"✓ {cheat_def.name} CODE-CAVE ACTIVE at 0x{match_address:08X}")
+
+        # Train the ML model on the successful address
+        self.memory_scanner.ml_predictor.learn(cheat_def.name, match_address, cheat_def.value_type, self.memory_scanner)
+
         return True
 
     def _build_code_cave_payload(
