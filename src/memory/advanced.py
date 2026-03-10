@@ -56,6 +56,7 @@ class FrozenAddress:
     last_write_time: float = 0.0
     write_count: int = 0
     error_count: int = 0
+    cooldown_until: float = 0.0
 
 
 class MemoryFreezer(_BackendMixin):
@@ -74,6 +75,10 @@ class MemoryFreezer(_BackendMixin):
     }
     
     def __init__(self, editor: Optional[Any] = None):
+        self._error_cooldown_duration: float = 10.0  # 10 seconds cooldown
+        self._consecutive_errors: int = 0
+        self._max_consecutive_errors: int = 5
+        self._global_cooldown_until: float = 0.0
         """
         Initialize the memory freezer.
         
@@ -212,6 +217,13 @@ class MemoryFreezer(_BackendMixin):
             try:
                 current_time = time.time()
                 
+                # Global circuit breaker
+                if current_time < self._global_cooldown_until:
+                    time.sleep(self._min_interval_ms / 1000.0)
+                    continue
+                else:
+                    self._consecutive_errors = 0  # Reset on cooldown expiration
+
                 with self._lock:
                     addresses = list(self.frozen.values())
                 
@@ -219,6 +231,10 @@ class MemoryFreezer(_BackendMixin):
                     if not frozen.enabled:
                         continue
                     
+                    # Per-address circuit breaker
+                    if current_time < frozen.cooldown_until:
+                        continue
+
                     # Check if it's time to write
                     elapsed_ms = (current_time - frozen.last_write_time) * 1000
                     if elapsed_ms < frozen.interval_ms:
@@ -232,7 +248,7 @@ class MemoryFreezer(_BackendMixin):
             except Exception as e:
                 logger.error("Freeze loop error: %s", e)
                 time.sleep(0.1)
-    
+
     def _write_frozen_value(self, frozen: FrozenAddress, current_time: float) -> None:
         """Write a frozen value to memory via the backend."""
         if not self.editor:
@@ -244,30 +260,43 @@ class MemoryFreezer(_BackendMixin):
             
             # Support both backend (write_bytes) and legacy (write_process_memory)
             if hasattr(self.editor, 'write_bytes'):
-                self.editor.write_bytes(frozen.address, data)
+                success = self.editor.write_bytes(frozen.address, data)
+                if success is False:
+                    raise Exception("Memory write failed (possibly permission denied)")
             else:
                 self._write_mem(frozen.address, data)
             
             frozen.last_write_time = current_time
             frozen.write_count += 1
             frozen.error_count = 0  # Reset on success
+            self._consecutive_errors = 0 # Reset global consecutive errors
             
             if self._on_write:
                 self._on_write(frozen.address, frozen.value)
                 
         except Exception as e:
             frozen.error_count += 1
+            self._consecutive_errors += 1
             
+            # Per-address circuit breaker
             if frozen.error_count >= self._max_errors_per_address:
-                logger.warning("Disabling freeze for 0x%08X after %d errors", 
+                logger.warning("Circuit breaker: Cooldown for 0x%08X after %d errors",
                              frozen.address, frozen.error_count)
-                frozen.enabled = False
+                frozen.cooldown_until = current_time + self._error_cooldown_duration
+                frozen.error_count = 0 # Reset count after entering cooldown
                 
                 if self._on_error:
                     self._on_error(frozen.address, str(e))
             
+            # Global circuit breaker
+            if self._consecutive_errors >= self._max_consecutive_errors:
+                logger.error("Global circuit breaker tripped: %d consecutive write failures. Cooling down for %.1fs",
+                             self._consecutive_errors, self._error_cooldown_duration)
+                self._global_cooldown_until = current_time + self._error_cooldown_duration
+                self._consecutive_errors = 0
+
             logger.debug("Freeze write error at 0x%08X: %s", frozen.address, e)
-    
+
     def get_stats(self) -> Dict[str, Any]:
         """Get freeze system statistics."""
         with self._lock:
@@ -724,6 +753,10 @@ class AOBScanner(_BackendMixin):
     """
     
     def __init__(self, editor: Optional[Any] = None):
+        self._error_cooldown_duration: float = 10.0  # 10 seconds cooldown
+        self._consecutive_errors: int = 0
+        self._max_consecutive_errors: int = 5
+        self._global_cooldown_until: float = 0.0
         """Initialize AOB scanner."""
         self.editor = editor
     
@@ -970,6 +1003,10 @@ class ChunkedScanner(_BackendMixin):
     """
     
     def __init__(self, editor: Optional[Any] = None):
+        self._error_cooldown_duration: float = 10.0  # 10 seconds cooldown
+        self._consecutive_errors: int = 0
+        self._max_consecutive_errors: int = 5
+        self._global_cooldown_until: float = 0.0
         """Initialize chunked scanner."""
         self.editor = editor
         self._results: List[Tuple[int, Any]] = []
