@@ -214,18 +214,18 @@ class TestMemoryBackend:
         assert results == [0x1000, 0x1002]
 
     def test_get_best_backend_prefers_procmem_on_native_linux(self):
-        from src.memory.backend import ProcMemBackend, get_best_backend
+        from src.memory.backend import DMABackend, get_best_backend
 
         with patch('src.memory.backend.get_platform', return_value='linux'), \
              patch('src.memory.backend.is_proton', return_value=False):
-            assert get_best_backend() is ProcMemBackend
+            assert get_best_backend() is DMABackend
 
     def test_get_best_backend_prefers_pymem_on_proton(self):
-        from src.memory.backend import PymemBackend, get_best_backend
+        from src.memory.backend import DMABackend, get_best_backend
 
         with patch('src.memory.backend.get_platform', return_value='linux'), \
              patch('src.memory.backend.is_proton', return_value=True):
-            assert get_best_backend() is PymemBackend
+            assert get_best_backend() is DMABackend
 
     def test_create_backend_uses_linux_priority_order(self):
         from src.memory.backend import create_backend, ProcMemBackend

@@ -13,6 +13,9 @@ from dataclasses import dataclass, field
 from concurrent.futures import ThreadPoolExecutor, as_completed, wait, FIRST_COMPLETED
 from enum import Enum
 
+from src.memory.backend import DMABackend
+
+
 logger = logging.getLogger('napoleon.memory.advanced')
 
 try:
@@ -731,7 +734,54 @@ class AOBScanner(_BackendMixin):
         """Set the memory editor."""
         self.editor = editor
     
+    def _scan_physical_memory(self, pattern: AOBPattern, max_results: int, timeout: float) -> List[int]:
+        """Scan physical memory pages via DMA instead of relying on OS APIs."""
+        results = []
+        start_time = time.time()
+
+        try:
+            regions = self.editor.get_physical_regions()
+        except AttributeError:
+            logger.warning("Backend does not support getting physical regions, falling back to logical memory.")
+            return self.scan(pattern, start_address=0, end_address=0x7FFFFFFF, max_results=max_results, timeout=timeout)
+
+        byte_pattern = pattern.bytes_pattern
+
+        for region in regions:
+            if time.time() - start_time > timeout:
+                break
+
+            address = region['address']
+            size = region['size']
+
+            try:
+                # Need physical memory reading from backend
+                data = self.editor.read_physical_bytes(address, size)
+                if not data:
+                    continue
+
+                # Simple search for physical pages, AOB scanner needs custom matching
+                # that handles masks correctly
+                matches = []
+                data_len = len(data)
+                pattern_len = len(byte_pattern)
+                for i in range(data_len - pattern_len + 1):
+                    match = True
+                    for j in range(pattern_len):
+                        if byte_pattern[j] is not None and data[i + j] != byte_pattern[j]:
+                            match = False
+                            break
+                    if match:
+                        results.append(address + i)
+                        if len(results) >= max_results:
+                            return results
+            except Exception as e:
+                logger.debug("Failed physical read at 0x%X: %s", address, e)
+
+        return results
+
     def scan(
+
         self,
         pattern: AOBPattern,
         start_address: int = 0x00400000,
@@ -765,7 +815,12 @@ class AOBScanner(_BackendMixin):
         
         pattern_len = len(byte_pattern)
         results = []
+        # If using DMABackend, we can optionally scan physical memory pages
+        if isinstance(self.editor, DMABackend):
+            return self._scan_physical_memory(pattern, max_results, timeout)
+
         start_time = time.time()
+
         
         logger.info("AOB scan: %s (%s) range 0x%08X-0x%08X", 
                     pattern.name, pattern.pattern, start_address, end_address)
@@ -1027,6 +1082,7 @@ class ChunkedScanner(_BackendMixin):
         
         total_range = end_address - start_address
         start_time = time.time()
+
         address = start_address
         
         logger.info("Chunked scan: value=%s type=%s range=0x%08X-0x%08X", 
