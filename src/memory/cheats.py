@@ -16,6 +16,7 @@ from typing import Optional, List, Dict, Any
 from dataclasses import dataclass, field
 
 from .scanner import MemoryScanner, ValueType
+from .watchpoints import WatchpointManager, ConditionalTriggerManager, ConditionType
 
 logger = logging.getLogger('napoleon.memory.cheats')
 
@@ -193,6 +194,9 @@ class CheatManager:
         self._pointer_resolver = None
         self._aob_scanner = None
         self.signature_db = None
+
+        self.watchpoint_manager = WatchpointManager(editor=self.memory_scanner.backend, pid=self.memory_scanner.process_manager.pid)
+        self.conditional_trigger_manager = ConditionalTriggerManager(self.watchpoint_manager, self)
 
         self._load_signatures()
         self.cheat_definitions = self._init_cheat_definitions()
@@ -832,6 +836,32 @@ class CheatManager:
         """Deactivate all active cheats."""
         for cheat_type in list(self.active_cheats.keys()):
             self.deactivate_cheat(cheat_type)
+
+    def add_conditional_cheat(self, cheat_type: CheatType, condition_type: ConditionType, condition_value: Any, trigger_description: str, pointer_chain_name: str) -> bool:
+        """Add a conditional trigger to activate a cheat."""
+        from .advanced import PointerResolver
+        if pointer_chain_name not in PointerResolver.KNOWN_CHAINS:
+            return False
+
+        chain = PointerResolver.KNOWN_CHAINS[pointer_chain_name]
+
+        # Ensure watchpoint manager has the latest editor and pid
+        if self.memory_scanner.is_attached() and self.watchpoint_manager.editor is None:
+            self.watchpoint_manager.set_editor(self.memory_scanner.backend, self.memory_scanner.process_manager.pid)
+
+        def _activate_cheat_action(current_val, prev_val):
+            logger.info(f"Condition met for {cheat_type.value}, activating...")
+            self.activate_cheat(cheat_type)
+
+        trigger_id = f"trigger_{cheat_type.value}_{condition_type.value}"
+        return self.conditional_trigger_manager.add_memory_trigger(
+            trigger_id=trigger_id,
+            description=trigger_description,
+            pointer_chain=chain,
+            condition_type=condition_type,
+            condition_value=condition_value,
+            action=_activate_cheat_action
+        )
 
     def _get_cheat_definition(self, cheat_type: CheatType) -> Optional[CheatDefinition]:
         """Get a cheat definition."""

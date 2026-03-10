@@ -16,6 +16,7 @@ from .advanced import (
 from .signatures import SignatureDatabase, SignatureEntry, ChainEntry, PatternMetadata
 from .speedhack import SpeedhackManager
 from .teleport import TeleportManager, Coordinates, TeleportTarget
+from .watchpoints import WatchpointManager, MemoryWatchpoint, WatchpointCondition, ConditionType, ConditionalTriggerManager
 
 __all__ = [
     'ProcessManager',
@@ -41,4 +42,9 @@ __all__ = [
     'TeleportManager',
     'Coordinates',
     'TeleportTarget',
+    'WatchpointManager',
+    'MemoryWatchpoint',
+    'WatchpointCondition',
+    'ConditionType',
+    'ConditionalTriggerManager',
 ]
