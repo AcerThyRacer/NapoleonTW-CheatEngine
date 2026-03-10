@@ -234,7 +234,7 @@ class MemoryFreezer(_BackendMixin):
                 time.sleep(0.1)
     
     def _write_frozen_value(self, frozen: FrozenAddress, current_time: float) -> None:
-        """Write a frozen value to memory via the backend."""
+        """Write a frozen value to memory via the backend if it has changed (Lazy Write)."""
         if not self.editor:
             return
         
@@ -242,18 +242,28 @@ class MemoryFreezer(_BackendMixin):
             fmt, size = self.VALUE_FORMATS[frozen.value_type]
             data = struct.pack(fmt, frozen.value)
             
-            # Support both backend (write_bytes) and legacy (write_process_memory)
-            if hasattr(self.editor, 'write_bytes'):
-                self.editor.write_bytes(frozen.address, data)
+            # Read first to check if value actually changed (Lazy Freezing)
+            current_data = None
+            if hasattr(self.editor, 'read_bytes'):
+                current_data = self.editor.read_bytes(frozen.address, size)
             else:
-                self._write_mem(frozen.address, data)
-            
+                current_data = self._read_mem(frozen.address, size)
+
+            # Only perform write if the memory doesn't match our target data
+            if current_data != data:
+                # Support both backend (write_bytes) and legacy (write_process_memory)
+                if hasattr(self.editor, 'write_bytes'):
+                    self.editor.write_bytes(frozen.address, data)
+                else:
+                    self._write_mem(frozen.address, data)
+
+                frozen.write_count += 1
+                if self._on_write:
+                    self._on_write(frozen.address, frozen.value)
+
+            # Update time and reset error regardless of whether we wrote or skipped
             frozen.last_write_time = current_time
-            frozen.write_count += 1
             frozen.error_count = 0  # Reset on success
-            
-            if self._on_write:
-                self._on_write(frozen.address, frozen.value)
                 
         except Exception as e:
             frozen.error_count += 1

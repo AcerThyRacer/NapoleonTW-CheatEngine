@@ -3,6 +3,10 @@ Memory scanner implementation with backend abstraction.
 Provides Cheat Engine-like functionality for scanning and editing memory.
 """
 
+
+import os
+import json
+import hashlib
 from enum import Enum
 from typing import TYPE_CHECKING, Dict, List, Optional, TypedDict, Union, cast
 from dataclasses import dataclass
@@ -96,6 +100,75 @@ class MemoryScanner:
         self.scan_history: List[ScanHistoryEntry] = []
         self._freezer: Optional["MemoryFreezer"] = None
         
+        # Incremental scan cache
+        self.cache_dir = os.path.join(os.getcwd(), '.cache', 'scans')
+        os.makedirs(self.cache_dir, exist_ok=True)
+
+
+
+    def _get_cache_path(self, scan_type_label: str) -> str:
+        """Get the file path for caching scan results of a specific semantic label."""
+        if not scan_type_label:
+            return ""
+
+        # Cache key based on semantic label, allowing cross-session caching
+        key = f"cache_{scan_type_label}"
+        return os.path.join(self.cache_dir, f"{key}.json")
+
+    def _save_scan_cache(self, scan_type_label: str, results: List[ScanResult]) -> None:
+        """Save scan result regions to cache to speed up subsequent scans."""
+        cache_path = self._get_cache_path(scan_type_label)
+        if not cache_path or not self.backend:
+            return
+
+        try:
+            import bisect
+            # Find which regions contain our results
+            all_regions = sorted(self.backend.get_prioritized_regions(), key=lambda r: r['address'])
+            region_starts = [r['address'] for r in all_regions]
+            matched_regions = []
+
+            # Efficiently map results to regions using bisect
+            result_addresses = sorted(r.address for r in results)
+            added_regions = set()
+
+            for addr in result_addresses:
+                # Find the region that could contain this address
+                idx = bisect.bisect_right(region_starts, addr) - 1
+                if idx >= 0:
+                    region = all_regions[idx]
+                    if addr < region['address'] + region['size']:
+                        if region['address'] not in added_regions:
+                            matched_regions.append(region)
+                            added_regions.add(region['address'])
+
+            import json
+            with open(cache_path, 'w') as f:
+                json.dump(matched_regions, f)
+        except Exception as e:
+            logger.debug(f"Failed to save scan cache: {e}")
+
+    def _load_scan_cache(self, scan_type_label: str) -> List[dict]:
+        """Load cached scan regions if available."""
+        cache_path = self._get_cache_path(scan_type_label)
+        if not cache_path or not os.path.exists(cache_path):
+            return []
+
+        try:
+            import json
+            with open(cache_path, 'r') as f:
+                return json.load(f)
+        except Exception as e:
+            logger.debug(f"Failed to load scan cache: {e}")
+            return []
+
+        try:
+            with open(cache_path, 'r') as f:
+                return json.load(f)
+        except Exception as e:
+            logger.debug(f"Failed to load scan cache: {e}")
+            return []
+
     def attach(self) -> bool:
         """
         Attach to the process and initialize memory backend.
@@ -204,7 +277,8 @@ class MemoryScanner:
         value_type: ValueType = ValueType.INT_32,
         from_scratch: bool = True,
         max_workers: int = 4,
-        timeout: float = 30.0
+        timeout: float = 30.0,
+        scan_type_label: Optional[str] = None
     ) -> int:
         """
         Scan for an exact value using parallel multi-threading.
@@ -217,114 +291,106 @@ class MemoryScanner:
             from_scratch: If True, start new scan
             max_workers: Number of parallel threads (default: 4)
             timeout: Maximum time in seconds for the scan (default: 30.0)
+            scan_type_label: Optional semantic label for caching (e.g., 'gold')
             
         Returns:
             int: Number of results found
         """
         if not self.is_attached():
             raise RuntimeError("Not attached to process")
-        
+
         if from_scratch:
             self.results = []
             self.previous_values = {}
+
+            # Try to load cached regions for this label
+            cached_regions = self._load_scan_cache(scan_type_label) if scan_type_label else []
+            if cached_regions:
+                logger.info(f"Loaded {len(cached_regions)} cached regions for {scan_type_label}")
+        else:
+            cached_regions = []
+
+        start_time = time.monotonic()
         
         backend = self.backend
         if not backend:
             return self._manual_scan_exact(value, value_type, from_scratch)
         
-        start_time = time.monotonic()
-        
         try:
-            # Get memory regions
-            regions = backend.get_readable_regions()
-            
-            if not regions:
-                return 0
-            
             # Prepare scan parameters
             value_bytes = self._pack_value(value, value_type)
             type_size = self._get_type_size(value_type)
             
-            # Thread-safe results collection
-            results_lock = threading.Lock()
-            thread_results: List[ScanResult] = []
-            timed_out = False
-            
-            def scan_region_task(region: MemoryRegion) -> List[ScanResult]:
-                """Worker function to scan a single region."""
-                local_results: List[ScanResult] = []
+            # Helper function for the thread pool
+            def run_parallel_scan(regions_to_scan):
+                results_lock = threading.Lock()
+                thread_results: List[ScanResult] = []
                 
-                try:
-                    if time.monotonic() - start_time > timeout:
-                        return local_results
-                    
-                    # Read entire region via backend
-                    data = backend.read_bytes(
-                        region['address'],
-                        region['size']
-                    )
-                    
-                    if not data or len(data) < type_size:
-                        return local_results
-                    
-                    # Search for value in data
-                    value_pattern = value_bytes
-                    pos = 0
-                    
-                    while pos <= len(data) - type_size:
-                        if time.monotonic() - start_time > timeout:
-                            break
-                        
-                        # Find next occurrence
-                        found_pos = data.find(value_pattern, pos)
-                        
-                        if found_pos == -1:
-                            break
-                        
-                        # Calculate actual address
-                        address = region['address'] + found_pos
-                        
-                        # Read and verify value
-                        current_data = data[found_pos:found_pos + type_size]
-                        if current_data:
-                            current_value = self._unpack_value(current_data, value_type)
-                            local_results.append(ScanResult(
-                                address=address,
-                                value=current_value,
-                                value_type=value_type
-                            ))
-                        
-                        pos = found_pos + 1
-                    
-                except Exception:
-                    # Skip regions that can't be read
-                    pass
-                
-                return local_results
-            
-            # Execute parallel scan
-            remaining = max(0.1, timeout - (time.monotonic() - start_time))
-            with ThreadPoolExecutor(max_workers=max_workers) as executor:
-                # Submit all region scans
-                future_to_region = {
-                    executor.submit(scan_region_task, region): region
-                    for region in regions
-                }
-                
-                # Collect results as they complete
-                for future in as_completed(future_to_region, timeout=remaining):
+                def scan_region_task(region: MemoryRegion) -> List[ScanResult]:
+                    local_results: List[ScanResult] = []
                     try:
-                        region_results = future.result()
-                        with results_lock:
-                            thread_results.extend(region_results)
+                        if time.monotonic() - start_time > timeout:
+                            return local_results
+                        data = backend.read_bytes(region['address'], region['size'])
+                        if not data or len(data) < type_size:
+                            return local_results
+                        
+                        pos = 0
+                        while pos <= len(data) - type_size:
+                            if time.monotonic() - start_time > timeout:
+                                break
+                            found_pos = data.find(value_bytes, pos)
+                            if found_pos == -1:
+                                break
+
+                            address = region['address'] + found_pos
+                            current_data = data[found_pos:found_pos + type_size]
+                            if current_data:
+                                current_value = self._unpack_value(current_data, value_type)
+                                local_results.append(ScanResult(
+                                    address=address,
+                                    value=current_value,
+                                    value_type=value_type
+                                ))
+                            pos = found_pos + 1
                     except Exception:
-                        # Ignore failed regions
                         pass
-            
+                    return local_results
+
+                remaining = max(0.1, timeout - (time.monotonic() - start_time))
+                with ThreadPoolExecutor(max_workers=max_workers) as executor:
+                    future_to_region = {executor.submit(scan_region_task, region): region for region in regions_to_scan}
+                    for future in as_completed(future_to_region, timeout=remaining):
+                        try:
+                            region_results = future.result()
+                            with results_lock:
+                                thread_results.extend(region_results)
+                        except Exception:
+                            pass
+                return thread_results
+
+            # Execution logic
+            if from_scratch and cached_regions:
+                logger.info("Parallel scan using cached regions first...")
+                self.results = run_parallel_scan(cached_regions)
+
+                if not self.results:
+                    logger.info("No matches in cached regions, falling back to full parallel scan")
+                    regions = backend.get_prioritized_regions()
+                    self.results = run_parallel_scan(regions)
+            else:
+                regions = backend.get_prioritized_regions()
+                if not regions:
+                    return 0
+                self.results = run_parallel_scan(regions)
+
             if time.monotonic() - start_time > timeout:
                 print(f"Parallel scan timed out after {timeout:.1f} seconds")
             
-            self.results = thread_results
+            # Save results to cache if it was a from_scratch scan, we found a reasonable amount, and we have a label
+            if from_scratch and scan_type_label and len(self.results) > 0 and len(self.results) < 50000:
+                self._save_scan_cache(scan_type_label, self.results)
+
             return len(self.results)
             
         except Exception as e:
@@ -336,7 +402,8 @@ class MemoryScanner:
         value: ScanValue,
         value_type: ValueType = ValueType.INT_32,
         from_scratch: bool = True,
-        timeout: float = 30.0
+        timeout: float = 30.0,
+        scan_type_label: Optional[str] = None
     ) -> int:
         """
         Scan for an exact value.
@@ -346,16 +413,24 @@ class MemoryScanner:
             value_type: Type of the value
             from_scratch: If True, start new scan; if False, filter previous results
             timeout: Maximum time in seconds for the scan (default: 30.0)
+            scan_type_label: Optional semantic label for caching (e.g., 'gold')
             
         Returns:
             int: Number of results found
         """
         if not self.is_attached():
             raise RuntimeError("Not attached to process")
-        
+
         if from_scratch:
             self.results = []
             self.previous_values = {}
+
+            # Try to load cached regions for this semantic label
+            cached_regions = self._load_scan_cache(scan_type_label) if scan_type_label else []
+            if cached_regions:
+                logger.info(f"Loaded {len(cached_regions)} cached regions for {scan_type_label}")
+        else:
+            cached_regions = []
         
         start_time = time.monotonic()
         
@@ -364,11 +439,24 @@ class MemoryScanner:
             try:
                 # Convert value to bytes
                 value_bytes = self._pack_value(value, value_type)
-                
-                # Search memory via backend
-                addresses = self.backend.search_bytes(value_bytes)
-                
                 type_size = self._get_type_size(value_type)
+                
+                addresses = []
+                if from_scratch and cached_regions:
+                    logger.info("Scanning cached regions first...")
+                    # Search ONLY in cached regions
+                    addresses = self.backend.search_bytes(value_bytes, regions=cached_regions)
+
+                    # If we found matches in cache, skip full scan
+                    if addresses:
+                        logger.info(f"Found {len(addresses)} matches in cached regions, skipping full scan")
+                    else:
+                        logger.info("No matches in cached regions, falling back to full scan")
+                        addresses = self.backend.search_bytes(value_bytes)
+                else:
+                    # Search memory via backend across all prioritized regions
+                    addresses = self.backend.search_bytes(value_bytes)
+                
                 for addr in addresses:
                     if time.monotonic() - start_time > timeout:
                         logger.warning("Scan timed out after %.1f seconds", timeout)
@@ -384,6 +472,10 @@ class MemoryScanner:
                             value_type=value_type
                         ))
                 
+                # Save results to cache if it was a from_scratch scan, we found a reasonable amount, and we have a label
+                if from_scratch and scan_type_label and len(self.results) > 0 and len(self.results) < 50000:
+                    self._save_scan_cache(scan_type_label, self.results)
+
                 return len(self.results)
                 
             except Exception as e:
@@ -658,7 +750,7 @@ class MemoryScanner:
         
         try:
             # Get memory regions to scan
-            regions = self.backend.get_readable_regions()
+            regions = self.backend.get_prioritized_regions()
             
             for region in regions:
                 if time.monotonic() - start_time > timeout:
@@ -705,7 +797,7 @@ class MemoryScanner:
             List[MemoryRegion]: List of region dictionaries with 'address' and 'size'
         """
         if self.backend:
-            return self.backend.get_readable_regions()
+            return self.backend.get_prioritized_regions()
         return []
     
     def _find_pattern(

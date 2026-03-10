@@ -20,10 +20,12 @@ from src.utils.platform import get_platform, is_proton
 logger = logging.getLogger('napoleon.memory.backend')
 
 
-class MemoryRegion(TypedDict):
+class MemoryRegion(TypedDict, total=False):
     """Readable process memory region."""
     address: int
     size: int
+    name: str
+    priority: int
 
 
 class MemoryBackend(ABC):
@@ -70,7 +72,7 @@ class MemoryBackend(ABC):
         Default implementation — backends can override for speed.
         """
         if regions is None:
-            regions = self.get_readable_regions()
+            regions = self.get_prioritized_regions()
         
         results: List[int] = []
         for region in regions:
@@ -87,6 +89,52 @@ class MemoryBackend(ABC):
                 start = pos + 1
         
         return results
+
+    def get_prioritized_regions(self) -> List[MemoryRegion]:
+        """Get readable regions sorted by likelihood of containing game data."""
+        regions = self.get_readable_regions()
+
+        # Priority mapping: lower is better
+        # 0: Game executable
+        # 1: Game modules (.dll / .so related to game)
+        # 2: Heap / anonymous memory
+        # 3: System libraries
+        # 9: Skip / Deprioritize (video drivers, etc.)
+
+        prioritized = []
+        for r in regions:
+            name = r.get('name', '').lower()
+            priority = 2 # default to heap/anonymous
+
+            if not name:
+                priority = 2
+            elif 'napoleon.exe' in name or name.endswith('.exe'):
+                priority = 0
+            elif 'd3d' in name or 'nv' in name or 'amd' in name or 'ati' in name or 'vulkan' in name or 'opengl' in name or 'glx' in name:
+                # Video driver / graphics memory, mostly useless to scan for gold/health
+                priority = 9
+            elif name.startswith('[heap]') or name.startswith('[stack]'):
+                priority = 2
+            elif '.dll' in name or '.so' in name:
+                if 'system32' in name or 'syswow64' in name or 'windows' in name or '/usr/lib' in name or '/lib/' in name:
+                    priority = 3
+                else:
+                    # Game specific DLLs
+                    priority = 1
+            elif name.startswith('/'):
+                # Linux system paths
+                if '/usr/lib' in name or '/lib' in name:
+                    priority = 3
+                else:
+                    priority = 1
+
+            r['priority'] = priority
+            if priority != 9:
+                prioritized.append(r)
+
+        prioritized.sort(key=lambda r: (r['priority'], r['address']))
+        return prioritized
+
 
 
 class PymemBackend(MemoryBackend):
@@ -149,6 +197,7 @@ class PymemBackend(MemoryBackend):
                 regions.append({
                     'address': module.lpBaseOfDll,
                     'size': module.SizeOfImage,
+                    'name': module.name,
                 })
             return regions
         except Exception:
@@ -319,7 +368,8 @@ class ProcMemBackend(MemoryBackend):
                         continue
                     if end <= start:
                         continue
-                    regions.append({'address': start, 'size': end - start})
+                    name = parts[-1] if len(parts) > 5 else ''
+                    regions.append({'address': start, 'size': end - start, 'name': name})
         except Exception as e:
             logger.debug("Failed to read /proc/%d/maps: %s", self._pid, e)
         return regions
