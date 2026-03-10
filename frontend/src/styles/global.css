@@ -1,0 +1,61 @@
+/**
+ * Global styles – Napoleon-era military base styling.
+ * Dark theme defaults with font selection and scrollbar styling.
+ */
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html,
+body {
+  font-family: "Georgia", "Times New Roman", serif;
+  background-color: #1a252f;
+  color: #d4af37;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  overflow-x: hidden;
+}
+
+/* Scrollbar styling */
+::-webkit-scrollbar {
+  width: 8px;
+}
+::-webkit-scrollbar-track {
+  background: #1a252f;
+}
+::-webkit-scrollbar-thumb {
+  background: #d4af37;
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #f1c40f;
+}
+
+/* Selection color */
+::selection {
+  background: #d4af37;
+  color: #1a252f;
+}
+
+/* Button reset */
+button {
+  font-family: inherit;
+}
+
+/* Input reset */
+input,
+select {
+  font-family: inherit;
+}
+
+/* Responsive helpers */
+@media (max-width: 768px) {
+  html {
+    font-size: 14px;
+  }
+}

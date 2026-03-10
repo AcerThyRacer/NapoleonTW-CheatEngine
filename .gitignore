@@ -59,3 +59,9 @@ htmlcov/
 save_games/
 *.esf
 *.pack
+
+# Frontend (Node / Tauri)
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/
+src-tauri/target/
