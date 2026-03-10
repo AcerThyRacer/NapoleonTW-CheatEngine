@@ -128,8 +128,22 @@ class GameStateMonitor:
             # Game not running
             if self._current_mode != GameMode.NOT_RUNNING:
                 old_mode = self._current_mode
+
+                # Check if it was previously running and is now unexpectedly gone
+                crashed = False
+                if self._pid is not None:
+                    try:
+                        # Process might have exited cleanly or crashed
+                        # Since it's gone from process list, we can't reliably get exit code via psutil easily
+                        # So we assume if it drops while we were attached, it's worth notifying as a potential crash
+                        crashed = True
+                        logger.warning("Game process (PID %d) terminated unexpectedly", self._pid)
+                    except Exception:
+                        pass
+
                 self._current_mode = GameMode.NOT_RUNNING
                 self._process = None
+                last_pid = self._pid
                 self._pid = None
                 
                 logger.info("Game stopped")
@@ -137,7 +151,7 @@ class GameStateMonitor:
                 # Emit event
                 EventEmitter().emit(
                     EventType.PROCESS_DETACHED,
-                    data={'pid': self._pid},
+                    data={'pid': last_pid, 'crashed': crashed},
                     source='game_state_monitor'
                 )
 

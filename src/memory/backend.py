@@ -12,6 +12,7 @@ This isolates the rest of the codebase from library-specific API differences.
 import logging
 import os
 import sys
+import time
 from typing import Any, List, Optional, Type, TypedDict
 from abc import ABC, abstractmethod
 
@@ -29,6 +30,15 @@ class MemoryRegion(TypedDict):
 class MemoryBackend(ABC):
     """Abstract memory access backend."""
     
+    def __init__(self):
+        self._regions_cache: List[MemoryRegion] = []
+        self._regions_cache_time = 0.0
+        self._cache_ttl = 2.0  # 2 seconds cache ttl
+
+    def invalidate_regions_cache(self):
+        self._regions_cache = []
+        self._regions_cache_time = 0.0
+
     @abstractmethod
     def open(self, pid: int) -> bool:
         """Open/attach to a process."""
@@ -53,6 +63,18 @@ class MemoryBackend(ABC):
     def get_readable_regions(self) -> List[MemoryRegion]:
         """Get list of readable memory regions: [{'address': int, 'size': int}]."""
         ...
+
+    def is_valid_address(self, address: int) -> bool:
+        """Check if an address is within any known readable/writable region."""
+        current_time = time.time()
+        if current_time - self._regions_cache_time > self._cache_ttl or not self._regions_cache:
+            self._regions_cache = self.get_readable_regions()
+            self._regions_cache_time = current_time
+
+        for region in self._regions_cache:
+            if region['address'] <= address < (region['address'] + region['size']):
+                return True
+        return False
     
     @property
     @abstractmethod
@@ -132,6 +154,12 @@ class PymemBackend(MemoryBackend):
     def write_bytes(self, address: int, data: bytes) -> bool:
         if not self._pm:
             return False
+
+        # Verify memory page is still writable / address is valid
+        if not self.is_valid_address(address):
+            logger.warning("Address 0x%08X is no longer valid or writable. ASLR may have shifted it.", address)
+            return False
+
         try:
             self._pm.write_bytes(address, data, len(data))
             return True
@@ -224,6 +252,12 @@ class PyMemoryEditorBackend(MemoryBackend):
     def write_bytes(self, address: int, data: bytes) -> bool:
         if not self._editor:
             return False
+
+        # Verify memory page is still writable / address is valid
+        if not self.is_valid_address(address):
+            logger.warning("Address 0x%08X is no longer valid or writable. ASLR may have shifted it.", address)
+            return False
+
         try:
             self._editor.write_process_memory(address, data)
             return True
@@ -291,6 +325,12 @@ class ProcMemBackend(MemoryBackend):
     def write_bytes(self, address: int, data: bytes) -> bool:
         if self._mem_fd is None:
             return False
+
+        # Verify memory page is still writable / address is valid
+        if not self.is_valid_address(address):
+            logger.warning("Address 0x%08X is no longer valid or writable. ASLR may have shifted it.", address)
+            return False
+
         try:
             os.lseek(self._mem_fd, address, os.SEEK_SET)
             os.write(self._mem_fd, data)

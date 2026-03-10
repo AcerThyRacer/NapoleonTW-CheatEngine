@@ -272,15 +272,78 @@ class TrainerTab(QWidget):
     
     def _update_cheat_status(self) -> None:
         """Update cheat status display."""
+        was_attached = getattr(self, '_was_attached', False)
+        is_attached = self.scanner.is_attached()
+
+        self._was_attached = is_attached
+
+        if was_attached and not is_attached:
+            # Game crashed or was closed
+            self._handle_process_crash()
+            return
+
         active_cheats = self.trainer_cheats.get_active_cheats()
         
         if active_cheats:
             self.status_label.setText(f"Active cheats: {len(active_cheats)}")
             self.status_label.setStyleSheet("color: #00ff00;")
         else:
-            if self.scanner.is_attached():
+            if is_attached:
                 self.status_label.setText("Trainer active - no cheats enabled")
                 self.status_label.setStyleSheet("color: #ffaa00;")
+            else:
+                self.status_label.setText("Trainer inactive")
+                self.status_label.setStyleSheet("color: #888888;")
+
+    def _handle_process_crash(self) -> None:
+        """Handle game process unexpected detachment."""
+        active_count = len(self.cheat_manager.active_cheats)
+        if active_count > 0:
+            self.cheat_manager.save_active_cheats_state()
+
+            # Show one-click restore prompt
+            msg = QMessageBox(self)
+            msg.setIcon(QMessageBox.Icon.Warning)
+            msg.setWindowTitle("Process Lost")
+            msg.setText(f"Game process has terminated unexpectedly.\n{active_count} cheats were active.")
+
+            restore_btn = msg.addButton("Re-attach and Restore", QMessageBox.ButtonRole.AcceptRole)
+            cancel_btn = msg.addButton("Dismiss", QMessageBox.ButtonRole.RejectRole)
+
+            msg.exec()
+
+            if msg.clickedButton() == restore_btn:
+                self._reattach_and_restore()
+            else:
+                self._detach_trainer()
+        else:
+            self._detach_trainer()
+
+    def _reattach_and_restore(self) -> None:
+        """Attempt to re-attach to game and restore cheats."""
+        if self.scanner.attach():
+            self.trainer_status_label.setText(f"Status: Attached to {self.process_manager.process_name}")
+            self.trainer_attach_btn.setEnabled(False)
+            self.trainer_detach_btn.setEnabled(True)
+            self.start_hotkeys_btn.setEnabled(True)
+
+            restored = self.cheat_manager.restore_saved_cheats()
+            self.status_label.setText(f"Trainer ready - {restored} cheats restored")
+            self.status_label.setStyleSheet("color: #00ff00;")
+
+            # Update checkboxes
+            self._sync_checkboxes_with_manager()
+        else:
+            QMessageBox.warning(self, "Error", "Failed to attach to game process. Is it running?")
+            self._detach_trainer()
+
+    def _sync_checkboxes_with_manager(self) -> None:
+        """Update checkboxes to match current cheat state."""
+        for cheat_type, checkbox in self.cheat_checkboxes.items():
+            is_active = self.cheat_manager.is_cheat_active(cheat_type)
+            checkbox.blockSignals(True)
+            checkbox.setChecked(is_active)
+            checkbox.blockSignals(False)
     
     def cleanup(self) -> None:
         """Cleanup resources."""
