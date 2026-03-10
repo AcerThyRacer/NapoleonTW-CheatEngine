@@ -12,6 +12,8 @@ from .advanced import (
     PointerResolver, PointerChain,
     AOBScanner, AOBPattern,
     ChunkedScanner,
+    VMTHooker,
+    IATHooker,
 )
 from .signatures import SignatureDatabase, SignatureEntry, ChainEntry, PatternMetadata
 from .speedhack import SpeedhackManager
@@ -33,6 +35,8 @@ __all__ = [
     'AOBScanner',
     'AOBPattern',
     'ChunkedScanner',
+    'VMTHooker',
+    'IATHooker',
     'SignatureDatabase',
     'SignatureEntry',
     'ChainEntry',
