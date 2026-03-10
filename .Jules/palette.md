@@ -1,3 +1,7 @@
 ## 2024-05-16 - Silent errors and disabled states
 **Learning:** Silent console prints for errors in a GUI application create a confusing user experience because actions appear to do nothing. Additionally, users get confused when buttons are enabled but functionally useless (like a 'Scan' button when no process is attached). Combining disabled states with tooltips explaining *why* the button is disabled, and showing themed visual dialogs for errors, greatly improves clarity.
 **Action:** Always provide visual feedback for errors/info in GUI apps using tools like `QMessageBox`. Disable buttons that cannot currently be used and add tooltips explaining the prerequisite for enabling them.
+
+## 2025-02-27 - Disabled Button Tooltips
+**Learning:** While disabling buttons correctly prevents invalid actions, it can be frustrating if users don't know *why* the button is disabled or *how* to enable it. Adding explanatory tooltips to disabled buttons creates a much more intuitive user experience by immediately answering these questions without them having to read documentation.
+**Action:** Consistently apply dynamic tooltips to disabled state buttons across the application interface, explaining the required prerequisite for the button to become active. Ensure tooltips are cleared or updated when the button state changes.
