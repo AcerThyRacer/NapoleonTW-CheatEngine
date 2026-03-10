@@ -46,8 +46,8 @@ export function useWebSocket({
           const msg: InboundMessage = JSON.parse(event.data);
           setLastMessage(msg);
           onMessageRef.current?.(msg);
-        } catch {
-          // Ignore malformed messages
+        } catch (err) {
+          console.warn("[useWebSocket] Failed to parse message:", err);
         }
       };
 
@@ -63,7 +63,8 @@ export function useWebSocket({
       };
 
       wsRef.current = ws;
-    } catch {
+    } catch (err) {
+      console.warn("[useWebSocket] Connection error, retrying:", err);
       reconnectTimer.current = setTimeout(connect, reconnectDelay);
     }
   }, [url, reconnectDelay]);

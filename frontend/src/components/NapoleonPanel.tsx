@@ -238,7 +238,7 @@ export default function NapoleonPanel() {
           <div
             style={{
               display: "grid",
-              gridTemplateColumns: "repeat(auto-fill, minmax(340, 1fr))",
+              gridTemplateColumns: "repeat(auto-fill, minmax(340px, 1fr))",
               gap: 12,
               paddingTop: 12,
             }}
