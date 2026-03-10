@@ -54,6 +54,34 @@ class CheatType(Enum):
     ZERO_ATTRITION = 'zero_attrition'
     FREE_UPGRADES = 'free_upgrades'
 
+    # AI Manipulation
+    AI_FREEZES = 'ai_freezes'
+    AI_MORALE_CRASH = 'ai_morale_crash'
+    AI_REVEAL_FOG = 'ai_reveal_fog'
+    DIPLOMATIC_AI_OVERRIDE = 'diplomatic_ai_override'
+
+    # Time Control
+    SLOW_MOTION = 'slow_motion'
+    BULLET_TIME = 'bullet_time'
+    FAST_FORWARD_CAMPAIGN = 'fast_forward_campaign'
+
+    # Unit Spawning/Modification
+    CLONE_SELECTED_UNIT = 'clone_selected_unit'
+    CHANGE_UNIT_TYPE = 'change_unit_type'
+    MAX_EXPERIENCE = 'max_experience'
+    CUSTOM_UNIT_SIZE = 'custom_unit_size'
+
+    # Weather & Environment
+    REMOVE_MUD_SNOW = 'remove_mud_snow'
+    PERMANENT_NIGHT_DAY = 'permanent_night_day'
+    WIND_CONTROL = 'wind_control'
+
+    # Camera & Visual
+    FREE_CAMERA = 'free_camera'
+    FOV_CHANGER = 'fov_changer'
+    REMOVE_UI = 'remove_ui'
+    UNIT_HIGHLIGHTING = 'unit_highlighting'
+
 
 @dataclass
 class CheatDefinition:
@@ -514,6 +542,232 @@ class CheatManager:
                 pointer_chains=['veterancy_upgrade_cost'],
                 aob_patterns=['veterancy_upgrade_cost_write'],
                 scan_key='veterancy_upgrade_cost',
+            ),
+
+            # AI Manipulation
+            CheatDefinition(
+                cheat_type=CheatType.AI_FREEZES,
+                name="AI Freezes",
+                description="Stop enemy AI from making decisions",
+                value_type=ValueType.INT_32,
+                default_value=1,
+                cheat_value=0,
+                mode='battle',
+                pointer_chains=['ai_decision_flag'],
+                aob_patterns=['ai_decision_check'],
+                scan_key='ai_decision_flag',
+            ),
+            CheatDefinition(
+                cheat_type=CheatType.AI_MORALE_CRASH,
+                name="AI Morale Crash",
+                description="Force enemy units to rout instantly",
+                value_type=ValueType.FLOAT,
+                default_value=1.0,
+                cheat_value=-100.0,
+                mode='battle',
+                pointer_chains=['ai_morale'],
+                aob_patterns=['ai_morale_write'],
+                scan_key='ai_morale',
+            ),
+            CheatDefinition(
+                cheat_type=CheatType.AI_REVEAL_FOG,
+                name="AI Reveal Fog",
+                description="Make AI act as if it sees everything (for testing)",
+                value_type=ValueType.INT_32,
+                default_value=0,
+                cheat_value=1,
+                mode='campaign',
+                pointer_chains=['ai_fog_of_war'],
+                aob_patterns=['ai_fog_of_war_check'],
+                scan_key='ai_fog_of_war',
+            ),
+            CheatDefinition(
+                cheat_type=CheatType.DIPLOMATIC_AI_OVERRIDE,
+                name="Diplomatic AI Override",
+                description="Force AI factions to accept any deal",
+                value_type=ValueType.INT_32,
+                default_value=0,
+                cheat_value=1,
+                mode='campaign',
+                pointer_chains=['ai_diplomacy_acceptance'],
+                aob_patterns=['ai_diplomacy_check'],
+                scan_key='ai_diplomacy_acceptance',
+            ),
+
+            # Time Control
+            CheatDefinition(
+                cheat_type=CheatType.SLOW_MOTION,
+                name="Slow Motion",
+                description="Reduce game speed to 0.25x for precise micro-management",
+                value_type=ValueType.FLOAT,
+                default_value=1.0,
+                cheat_value=0.25,
+                mode='battle',
+                pointer_chains=['game_speed'],
+                aob_patterns=['game_speed_write'],
+                scan_key='game_speed',
+            ),
+            CheatDefinition(
+                cheat_type=CheatType.BULLET_TIME,
+                name="Bullet Time",
+                description="Slow only projectiles, keep units at normal speed",
+                value_type=ValueType.FLOAT,
+                default_value=1.0,
+                cheat_value=0.1,
+                mode='battle',
+                pointer_chains=['projectile_speed'],
+                aob_patterns=['projectile_speed_write'],
+                scan_key='projectile_speed',
+            ),
+            CheatDefinition(
+                cheat_type=CheatType.FAST_FORWARD_CAMPAIGN,
+                name="Fast Forward Campaign",
+                description="10x turn processing speed",
+                value_type=ValueType.FLOAT,
+                default_value=1.0,
+                cheat_value=10.0,
+                mode='campaign',
+                pointer_chains=['campaign_speed'],
+                aob_patterns=['campaign_speed_write'],
+                scan_key='campaign_speed',
+            ),
+
+            # Unit Spawning/Modification
+            CheatDefinition(
+                cheat_type=CheatType.CLONE_SELECTED_UNIT,
+                name="Clone Selected Unit",
+                description="Duplicate the currently selected unit",
+                value_type=ValueType.INT_32,
+                default_value=0,
+                cheat_value=1,
+                mode='battle',
+                pointer_chains=['clone_unit_flag'],
+                aob_patterns=['clone_unit_check'],
+                scan_key='clone_unit_flag',
+            ),
+            CheatDefinition(
+                cheat_type=CheatType.CHANGE_UNIT_TYPE,
+                name="Change Unit Type",
+                description="Transform a militia into a guard unit mid-battle",
+                value_type=ValueType.INT_32,
+                default_value=0,
+                cheat_value=1,
+                mode='battle',
+                pointer_chains=['unit_type_id'],
+                aob_patterns=['unit_type_write'],
+                scan_key='unit_type_id',
+            ),
+            CheatDefinition(
+                cheat_type=CheatType.MAX_EXPERIENCE,
+                name="Max Experience",
+                description="Instantly give units gold chevrons",
+                value_type=ValueType.INT_32,
+                default_value=0,
+                cheat_value=9,
+                mode='battle',
+                pointer_chains=['unit_experience'],
+                aob_patterns=['unit_experience_write'],
+                scan_key='unit_experience',
+            ),
+            CheatDefinition(
+                cheat_type=CheatType.CUSTOM_UNIT_SIZE,
+                name="Custom Unit Size",
+                description="Override unit size limits (500-man battalions)",
+                value_type=ValueType.INT_32,
+                default_value=160,
+                cheat_value=500,
+                mode='battle',
+                pointer_chains=['unit_size'],
+                aob_patterns=['unit_size_write'],
+                scan_key='unit_size',
+            ),
+
+            # Weather & Environment
+            CheatDefinition(
+                cheat_type=CheatType.REMOVE_MUD_SNOW,
+                name="Remove Mud/Snow",
+                description="Clear weather effects on movement",
+                value_type=ValueType.FLOAT,
+                default_value=1.0,
+                cheat_value=0.0,
+                mode='battle',
+                pointer_chains=['weather_movement_penalty'],
+                aob_patterns=['weather_movement_penalty_write'],
+                scan_key='weather_movement_penalty',
+            ),
+            CheatDefinition(
+                cheat_type=CheatType.PERMANENT_NIGHT_DAY,
+                name="Permanent Night/Day",
+                description="Lock time of day",
+                value_type=ValueType.INT_32,
+                default_value=0,
+                cheat_value=1,
+                mode='battle',
+                pointer_chains=['time_of_day_lock'],
+                aob_patterns=['time_of_day_check'],
+                scan_key='time_of_day_lock',
+            ),
+            CheatDefinition(
+                cheat_type=CheatType.WIND_CONTROL,
+                name="Wind Control",
+                description="Set wind direction for naval battles",
+                value_type=ValueType.FLOAT,
+                default_value=0.0,
+                cheat_value=1.0,
+                mode='battle',
+                pointer_chains=['wind_direction'],
+                aob_patterns=['wind_direction_write'],
+                scan_key='wind_direction',
+            ),
+
+            # Camera & Visual
+            CheatDefinition(
+                cheat_type=CheatType.FREE_CAMERA,
+                name="Free Camera",
+                description="Unlock camera from unit constraints",
+                value_type=ValueType.INT_32,
+                default_value=1,
+                cheat_value=0,
+                mode='battle',
+                pointer_chains=['camera_constraint'],
+                aob_patterns=['camera_constraint_check'],
+                scan_key='camera_constraint',
+            ),
+            CheatDefinition(
+                cheat_type=CheatType.FOV_CHANGER,
+                name="FOV Changer",
+                description="Adjust field of view",
+                value_type=ValueType.FLOAT,
+                default_value=75.0,
+                cheat_value=90.0,
+                mode='battle',
+                pointer_chains=['camera_fov'],
+                aob_patterns=['camera_fov_write'],
+                scan_key='camera_fov',
+            ),
+            CheatDefinition(
+                cheat_type=CheatType.REMOVE_UI,
+                name="Remove UI",
+                description="Clean screenshot mode",
+                value_type=ValueType.INT_32,
+                default_value=1,
+                cheat_value=0,
+                mode='battle',
+                pointer_chains=['ui_visibility'],
+                aob_patterns=['ui_visibility_check'],
+                scan_key='ui_visibility',
+            ),
+            CheatDefinition(
+                cheat_type=CheatType.UNIT_HIGHLIGHTING,
+                name="Unit Highlighting",
+                description="Highlight all enemy units through terrain",
+                value_type=ValueType.INT_32,
+                default_value=0,
+                cheat_value=1,
+                mode='battle',
+                pointer_chains=['unit_highlight_flag'],
+                aob_patterns=['unit_highlight_check'],
+                scan_key='unit_highlight_flag',
             ),
         ]
 
