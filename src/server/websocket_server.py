@@ -374,6 +374,12 @@ class NapoleonWebServer:
 
     async def _handle_save_preset(self, msg: Dict[str, Any]) -> Dict[str, Any]:
         name = msg.get("name", "Unnamed")
+        if not isinstance(name, str) or len(name) > 100:
+            return {"type": "error", "message": "Invalid preset name"}
+        # Strip control characters for safety
+        name = "".join(ch for ch in name if ch.isprintable())
+        if not name:
+            name = "Unnamed"
         preset = {
             "name": name,
             "cheat_states": dict(self.state.cheat_states),

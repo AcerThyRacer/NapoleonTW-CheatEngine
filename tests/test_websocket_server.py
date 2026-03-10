@@ -254,6 +254,20 @@ class TestMessageHandlers:
         assert reply["type"] == "error"
 
     @pytest.mark.asyncio
+    async def test_save_preset_name_too_long(self, server):
+        msg = json.dumps({"type": "save_preset", "name": "A" * 200})
+        reply = await server.handle_message(msg)
+        assert reply["type"] == "error"
+        assert "Invalid preset name" in reply["message"]
+
+    @pytest.mark.asyncio
+    async def test_save_preset_strips_control_chars(self, server):
+        msg = json.dumps({"type": "save_preset", "name": "Test\x00Preset"})
+        reply = await server.handle_message(msg)
+        assert reply["type"] == "preset_saved"
+        assert reply["preset"]["name"] == "TestPreset"
+
+    @pytest.mark.asyncio
     async def test_get_memory_heatmap(self, server):
         reply = await server.handle_message('{"type": "get_memory_heatmap"}')
         assert reply["type"] == "memory_heatmap"
