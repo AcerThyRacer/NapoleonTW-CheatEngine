@@ -84,6 +84,165 @@ class MemoryPatch:
     description: str = ""
 
 
+from typing import Callable
+
+@dataclass
+class HookInfo:
+    """Information about a specific hook in a chain."""
+    hook_id: str
+    payload_builder: Callable[[int], bytes]
+    priority: int = 50
+    active: bool = True
+
+class HookManager:
+    """Manages chains of hooks at specific memory addresses.
+
+    When multiple hooks target the same address, it chains them together
+    in priority order. It also verifies that the game hasn't overwritten
+    the hook entry points.
+    """
+
+    def __init__(self, backend: Any):
+        self.backend = backend
+        # Mapping from site address to a list of HookInfo
+        self.hooks: Dict[int, List[HookInfo]] = {}
+        # Mapping from site address to the original bytes
+        self.original_bytes: Dict[int, bytes] = {}
+        # Mapping from site address to the current injected patch details
+        self.active_patches: Dict[int, List[MemoryPatch]] = {}
+        # Mapping from site address to its trampoline address
+        self.trampolines: Dict[int, int] = {}
+
+    def add_hook(self, address: int, hook_id: str, payload_builder: Callable[[int], bytes], overwrite_size: int, priority: int = 50) -> bool:
+        """Add a hook to an address. If the address is already hooked, it will be chained.
+
+        The payload_builder is a function that takes the trampoline address (or 0 if none created)
+        and returns the hook's payload bytes. This allows hooks to CALL the original instructions.
+        """
+        if not self.backend:
+            return False
+
+        if address not in self.original_bytes:
+            orig = self.backend.read_bytes(address, overwrite_size)
+            if orig is None or len(orig) != overwrite_size:
+                return False
+            self.original_bytes[address] = orig
+            self.hooks[address] = []
+
+        # Remove existing hook with same ID if it exists
+        self.hooks[address] = [h for h in self.hooks[address] if h.hook_id != hook_id]
+
+        self.hooks[address].append(HookInfo(hook_id=hook_id, payload_builder=payload_builder, priority=priority))
+        # Sort by priority (higher priority first)
+        self.hooks[address].sort(key=lambda x: x.priority, reverse=True)
+
+        return self._apply_hooks(address, overwrite_size)
+
+    def remove_hook(self, address: int, hook_id: str, overwrite_size: int) -> bool:
+        """Remove a specific hook from an address."""
+        if address not in self.hooks:
+            return False
+
+        self.hooks[address] = [h for h in self.hooks[address] if h.hook_id != hook_id]
+
+        if not self.hooks[address]:
+            # No hooks left, restore original bytes
+            return self.remove_all_hooks(address)
+
+        return self._apply_hooks(address, overwrite_size)
+
+    def remove_all_hooks(self, address: int) -> bool:
+        """Remove all hooks from an address and restore original bytes."""
+        if address not in self.original_bytes:
+            return True
+
+        if address in self.active_patches:
+            for patch in reversed(self.active_patches[address]):
+                if patch.address == address:
+                    self.backend.write_bytes(address, self.original_bytes[address])
+                else:
+                    # Restore cave with original zeros/int3s
+                    self.backend.write_bytes(patch.address, patch.original_bytes)
+            del self.active_patches[address]
+
+        # Clean up trampoline if any
+        if address in self.trampolines:
+            trampoline_addr = self.trampolines.pop(address)
+            # The trampoline was allocated by find_code_cave, ideally we would restore its zero/int3 padding
+            # For simplicity, we just forget about it here. The game won't jump to it anymore.
+
+        if address in self.hooks:
+            del self.hooks[address]
+        if address in self.original_bytes:
+            del self.original_bytes[address]
+        return True
+
+    def _apply_hooks(self, address: int, overwrite_size: int) -> bool:
+        """Apply the chain of hooks for an address."""
+        if address in self.active_patches:
+            # Clean up old patches
+            for patch in reversed(self.active_patches[address]):
+                if patch.address != address:  # Keep the site clean for a moment
+                    self.backend.write_bytes(patch.address, patch.original_bytes)
+
+        active_hooks = [h for h in self.hooks[address] if h.active]
+        if not active_hooks:
+            self.backend.write_bytes(address, self.original_bytes[address])
+            if address in self.active_patches:
+                del self.active_patches[address]
+            return True
+
+        injector = CodeCaveInjector(self.backend)
+
+        # Create trampoline if it doesn't exist
+        if address not in self.trampolines:
+            trampoline = injector.create_trampoline(address, overwrite_size)
+            if trampoline is None:
+                return False
+            self.trampolines[address] = trampoline
+
+        trampoline_addr = self.trampolines[address]
+
+        combined_payload = b""
+        for hook in active_hooks:
+            combined_payload += hook.payload_builder(trampoline_addr)
+
+        patches = injector.inject(
+            site_address=address,
+            payload=combined_payload,
+            overwrite_size=overwrite_size,
+        )
+
+        if patches:
+            self.active_patches[address] = patches
+            return True
+        return False
+
+    def validate_hooks(self) -> List[int]:
+        """Validate all active hooks to check if they have been overwritten.
+
+        Returns a list of addresses that were auto-restored.
+        """
+        restored_addresses = []
+        if not self.backend:
+            return restored_addresses
+
+        for address, patches in self.active_patches.items():
+            if not patches:
+                continue
+
+            # The last patch in the list is usually the site patch (the jump)
+            site_patch = next((p for p in patches if p.address == address), None)
+            if site_patch:
+                current_bytes = self.backend.read_bytes(address, len(site_patch.patched_bytes))
+                if current_bytes != site_patch.patched_bytes:
+                    logger.warning(f"Hook at 0x{address:X} was overwritten! Auto-restoring...")
+                    overwrite_size = len(self.original_bytes[address])
+                    if self._apply_hooks(address, overwrite_size):
+                        restored_addresses.append(address)
+
+        return restored_addresses
+
 class CodeCaveInjector:
     """Minimal code-cave injector for complex instruction redirection cheats."""
 
@@ -177,6 +336,39 @@ class CodeCaveInjector:
             ),
         ]
 
+    def create_trampoline(
+        self,
+        site_address: int,
+        overwrite_size: int,
+    ) -> Optional[int]:
+        """Creates a callable trampoline containing the original instructions.
+
+        Returns the memory address of the trampoline. The caller can CALL or JMP
+        to this address to execute the original instructions, which will then JMP
+        back to the instruction following the hook.
+        """
+        if not self.backend or overwrite_size < 5:
+            return None
+
+        original_site = self.backend.read_bytes(site_address, overwrite_size)
+        if original_site is None or len(original_site) != overwrite_size:
+            return None
+
+        trampoline_size = overwrite_size + 5
+        trampoline_address = self.find_code_cave(trampoline_size)
+        if trampoline_address is None:
+            return None
+
+        trampoline_payload = original_site + self.build_relative_jump(
+            trampoline_address + overwrite_size,
+            site_address + overwrite_size,
+        )
+
+        if not self.backend.write_bytes(trampoline_address, trampoline_payload):
+            return None
+
+        return trampoline_address
+
 
 class CheatManager:
     """
@@ -193,9 +385,18 @@ class CheatManager:
         self._pointer_resolver = None
         self._aob_scanner = None
         self.signature_db = None
+        self.hook_manager = HookManager(self.memory_scanner.backend)
 
         self._load_signatures()
         self.cheat_definitions = self._init_cheat_definitions()
+
+    def validate_hooks(self) -> None:
+        """Periodic validation of active hooks. This should be called from the main loop."""
+        if self.hook_manager:
+            restored = self.hook_manager.validate_hooks()
+            if restored:
+                for addr in restored:
+                    logger.warning(f"Hook at 0x{addr:X} auto-restored.")
 
     def _load_signatures(self) -> None:
         """Load the JSON-backed pointer-chain and AOB signature database."""
@@ -633,7 +834,7 @@ class CheatManager:
         pattern_name: str,
         match_address: int,
     ) -> bool:
-        """Redirect a complex cheat through a code cave."""
+        """Redirect a complex cheat through a code cave using HookManager."""
         if not self.memory_scanner.backend:
             return False
 
@@ -641,22 +842,32 @@ class CheatManager:
         if not payload:
             return False
 
-        injector = CodeCaveInjector(self.memory_scanner.backend)
-        patches = injector.inject(
-            site_address=match_address,
-            payload=payload,
+        # We need a builder since add_hook now expects one. For existing cheats that don't need
+        # to call the original trampoline, we can just return the payload directly and then
+        # execute the trampoline to ensure the original instruction is executed, if needed.
+        # However, looking at the code, these cheats historically overwrote the original bytes
+        # and did not call them (they just jumped back to match_address + overwrite_size).
+        # We'll maintain that behaviour by ignoring the trampoline address.
+        def payload_builder(trampoline_addr: int) -> bytes:
+            return payload
+
+        success = self.hook_manager.add_hook(
+            address=match_address,
+            hook_id=cheat_def.cheat_type.value,
+            payload_builder=payload_builder,
             overwrite_size=cheat_def.overwrite_size,
         )
-        if not patches:
+        if not success:
             return False
 
+        # Instead of storing patches, we track that the cheat is handled by hook_manager
         self.active_cheats[cheat_def.cheat_type] = {
             'address': match_address,
             'definition': cheat_def,
-            'patches': patches,
+            'is_hook': True,
             'pattern_name': pattern_name,
         }
-        print(f"✓ {cheat_def.name} CODE-CAVE ACTIVE at 0x{match_address:08X}")
+        print(f"✓ {cheat_def.name} CODE-CAVE HOOK ACTIVE at 0x{match_address:08X}")
         return True
 
     def _build_code_cave_payload(
@@ -795,20 +1006,27 @@ class CheatManager:
         cheat_info = self.active_cheats[cheat_type]
         cheat_def: CheatDefinition = cheat_info['definition']
 
-        patches = cheat_info.get('patches', [])
-        if patches and self.memory_scanner.backend:
-            for patch in reversed(patches):
-                self.memory_scanner.backend.write_bytes(patch.address, patch.original_bytes)
+        if cheat_info.get('is_hook'):
+            self.hook_manager.remove_hook(
+                address=cheat_info['address'],
+                hook_id=cheat_def.cheat_type.value,
+                overwrite_size=cheat_def.overwrite_size
+            )
         else:
-            address = cheat_info['address']
-            self.memory_scanner.unfreeze_value(address)
+            patches = cheat_info.get('patches', [])
+            if patches and self.memory_scanner.backend:
+                for patch in reversed(patches):
+                    self.memory_scanner.backend.write_bytes(patch.address, patch.original_bytes)
+            else:
+                address = cheat_info['address']
+                self.memory_scanner.unfreeze_value(address)
 
-            if cheat_info.get('original_value') is not None:
-                self.memory_scanner.write_value(
-                    address,
-                    cheat_info['original_value'],
-                    cheat_def.value_type,
-                )
+                if cheat_info.get('original_value') is not None:
+                    self.memory_scanner.write_value(
+                        address,
+                        cheat_info['original_value'],
+                        cheat_def.value_type,
+                    )
 
         del self.active_cheats[cheat_type]
         print(f"✗ {cheat_def.name} DEACTIVATED")
