@@ -12,6 +12,7 @@ from pathlib import Path
 import json
 import logging
 import struct
+import threading
 from typing import Optional, List, Dict, Any
 from dataclasses import dataclass, field
 
@@ -193,9 +194,66 @@ class CheatManager:
         self._pointer_resolver = None
         self._aob_scanner = None
         self.signature_db = None
+        self._healing_lock = threading.Lock()
+        self._healing_in_progress = set()
 
         self._load_signatures()
         self.cheat_definitions = self._init_cheat_definitions()
+
+        # Wire up the freezer healing callback if scanner is ready
+        if hasattr(self.memory_scanner, '_freezer') and self.memory_scanner._freezer:
+            self.memory_scanner._freezer.set_callbacks(on_error=self._on_freeze_error)
+
+    def _on_freeze_error(self, address: int, error_msg: str) -> None:
+        """Called when the memory freezer repeatedly fails to write to an address."""
+        # Find which cheat owns this address
+        target_cheat = None
+        for cheat_type, cheat_info in self.active_cheats.items():
+            if cheat_info.get('address') == address:
+                target_cheat = cheat_type
+                break
+
+        if target_cheat:
+            logger.warning("Freeze error for %s at 0x%08X: %s. Initiating self-healing.", target_cheat.value, address, error_msg)
+            # Run the healing process in a background thread to not block the freezer loop
+            threading.Thread(target=self.heal_cheat, args=(target_cheat,), daemon=True).start()
+
+    def heal_cheat(self, cheat_type: CheatType) -> bool:
+        """
+        Self-healing pointer system.
+        Suspends the cheat, attempts an AOB re-scan to find the new address, and resumes if found.
+        """
+        with self._healing_lock:
+            if cheat_type in self._healing_in_progress:
+                return False
+            self._healing_in_progress.add(cheat_type)
+
+        logger.info("Self-healing initiated for %s", cheat_type.value)
+        success = False
+        try:
+            # 1. Suspend the cheat temporarily
+            if self.is_cheat_active(cheat_type):
+                logger.info("Suspending %s for healing", cheat_type.value)
+                # We do a 'soft' deactivate so we don't clear the user's intent to have it on
+                self.deactivate_cheat(cheat_type)
+
+            # Clear cached address so it forces a re-resolve
+            if cheat_type in self._resolved_addresses:
+                del self._resolved_addresses[cheat_type]
+
+            # 2. Try to activate it again. activate_cheat will automatically
+            # try to resolve the pointer chain or AOB scan again.
+            if self.activate_cheat(cheat_type):
+                logger.info("Successfully healed %s! New address cached.", cheat_type.value)
+                success = True
+            else:
+                logger.error("Self-healing failed for %s. Could not resolve new address.", cheat_type.value)
+
+        finally:
+            with self._healing_lock:
+                self._healing_in_progress.remove(cheat_type)
+
+        return success
 
     def _load_signatures(self) -> None:
         """Load the JSON-backed pointer-chain and AOB signature database."""
@@ -540,6 +598,11 @@ class CheatManager:
         address: Optional[int] = None,
     ) -> bool:
         """Activate a value/freeze-based cheat using explicit or resolved addresses."""
+
+        # Ensure the freezer has our error callback registered
+        if self.memory_scanner._freezer and not self.memory_scanner._freezer._on_error:
+            self.memory_scanner._freezer.set_callbacks(on_error=self._on_freeze_error)
+
         if not address:
             address = self._resolved_addresses.get(cheat_def.cheat_type)
 
