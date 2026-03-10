@@ -99,7 +99,7 @@ def setup_logging(
     
     Args:
         level: Logging level
-        log_dir: Directory for log files (None = ~/.napoleon_cheat/logs/)
+        log_dir: Directory for log files (None = root project directory)
         json_logs: Use JSON format for file logs
         console: Enable console output
         max_bytes: Max log file size before rotation
@@ -109,7 +109,8 @@ def setup_logging(
         Root logger for the application
     """
     if log_dir is None:
-        log_dir = Path.home() / '.napoleon_cheat' / 'logs'
+        # Default to the root project directory
+        log_dir = Path.cwd()
     
     log_dir.mkdir(parents=True, exist_ok=True)
     
