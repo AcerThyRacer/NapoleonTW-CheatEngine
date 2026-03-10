@@ -11,6 +11,7 @@ The Python cheat engine in `src/` now has Linux-specific runtime guidance and ba
 - **Steam and Flatpak Steam layouts** are both recognized by the Linux path helpers.
 - **Wayland sessions** can launch the app and scan memory, but trainer hotkeys may be limited; **X11/XWayland** is still the most reliable option for global hotkeys.
 - **Memory writes on Linux** often require `sudo`, `CAP_SYS_PTRACE`, or a temporary `ptrace_scope` adjustment.
+- **Background trainer mode** auto-attaches to the game on both Windows and Linux, keeps hotkeys alive, and lets you open the GUI with **Ctrl+F10** while it runs headless (`python src/main.py --background`).
 
 For full setup instructions, see [LINUX_SETUP.md](LINUX_SETUP.md).
 

@@ -61,6 +61,12 @@ def main():
     )
     
     parser.add_argument(
+        '--background',
+        action='store_true',
+        help='Run background trainer service (auto attach + hotkeys)'
+    )
+    
+    parser.add_argument(
         '--memory-scanner',
         action='store_true',
         help='Launch memory scanner only'
@@ -75,10 +81,12 @@ def main():
     args = parser.parse_args()
     
     # Default to GUI if no option specified
-    if not any([args.gui, args.cli, args.trainer, args.memory_scanner]):
+    if not any([args.gui, args.cli, args.trainer, args.memory_scanner, args.background]):
         args.gui = True
     
-    if args.gui:
+    if args.background:
+        launch_background()
+    elif args.gui:
         launch_gui()
     elif args.cli:
         launch_cli()
@@ -195,6 +203,35 @@ def launch_trainer():
             hotkey_manager.stop()
         if scanner:
             scanner.detach()
+
+
+def launch_background():
+    """Run trainer as a headless background service with hotkeys."""
+    print("Napoleon Total War Background Trainer")
+    print("=" * 50)
+
+    from src.trainer import BackgroundTrainer
+    from src.utils.platform import get_hotkey_compatibility_warning
+
+    warning = get_hotkey_compatibility_warning()
+    if warning:
+        print(f"\n{warning}")
+
+    trainer = BackgroundTrainer()
+    trainer.start()
+
+    print("\nWaiting for Napoleon Total War to launch...")
+    print("Hotkeys remain active; press Ctrl+F10 anytime to open the GUI.")
+    print("Press Ctrl+C to stop the background trainer.\n")
+
+    import time
+    try:
+        while True:
+            time.sleep(1)
+    except KeyboardInterrupt:
+        print("\nStopping background trainer...")
+    finally:
+        trainer.stop()
 
 
 def launch_memory_scanner():
