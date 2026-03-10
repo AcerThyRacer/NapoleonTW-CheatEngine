@@ -54,6 +54,10 @@ class CheatType(Enum):
     ZERO_ATTRITION = 'zero_attrition'
     FREE_UPGRADES = 'free_upgrades'
 
+    INSTANT_RECRUITMENT = 'instant_recruitment'
+    NO_FOG_OF_WAR = 'no_fog_of_war'
+    UNLIMITED_AGENTS = 'unlimited_agents'
+
 
 @dataclass
 class CheatDefinition:
@@ -134,18 +138,22 @@ class CodeCaveInjector:
     ) -> Optional[List[MemoryPatch]]:
         """Inject a payload into a code cave and redirect execution to it."""
         if not self.backend or overwrite_size < 5 or not payload:
+            logger.error("CodeCaveInjector.inject: Invalid arguments")
             return None
 
         cave_size = len(payload) + 5
         cave_address = cave_address or self.find_code_cave(cave_size)
         if cave_address is None:
+            logger.error("CodeCaveInjector.inject: Could not find code cave of size %d", cave_size)
             return None
 
         original_site = self.backend.read_bytes(site_address, overwrite_size)
         original_cave = self.backend.read_bytes(cave_address, cave_size)
         if original_site is None or len(original_site) != overwrite_size:
+            logger.error("CodeCaveInjector.inject: Failed to read original site bytes at 0x%X", site_address)
             return None
         if original_cave is None or len(original_cave) != cave_size:
+            logger.error("CodeCaveInjector.inject: Failed to read original cave bytes at 0x%X", cave_address)
             return None
 
         cave_payload = payload + self.build_relative_jump(
@@ -157,8 +165,10 @@ class CodeCaveInjector:
             site_patch += b'\x90' * (overwrite_size - 5)
 
         if not self.backend.write_bytes(cave_address, cave_payload):
+            logger.error("CodeCaveInjector.inject: Failed to write cave payload at 0x%X", cave_address)
             return None
         if not self.backend.write_bytes(site_address, site_patch):
+            logger.error("CodeCaveInjector.inject: Failed to write site patch at 0x%X", site_address)
             self.backend.write_bytes(cave_address, original_cave)
             return None
 
@@ -515,6 +525,42 @@ class CheatManager:
                 aob_patterns=['veterancy_upgrade_cost_write'],
                 scan_key='veterancy_upgrade_cost',
             ),
+            CheatDefinition(
+                cheat_type=CheatType.INSTANT_RECRUITMENT,
+                name="Instant Recruitment",
+                description="Set unit recruitment timer to 0",
+                value_type=ValueType.INT_32,
+                default_value=None,
+                cheat_value=0,
+                mode='campaign',
+                pointer_chains=['recruitment_timer'],
+                aob_patterns=['recruitment_decrement'],
+                scan_key='recruitment_timer',
+            ),
+            CheatDefinition(
+                cheat_type=CheatType.NO_FOG_OF_WAR,
+                name="No Fog of War",
+                description="Disable fog of war on the campaign map",
+                value_type=ValueType.INT_32,
+                default_value=0,
+                cheat_value=1,
+                mode='campaign',
+                pointer_chains=['fog_of_war_flag'],
+                aob_patterns=['fog_of_war_check'],
+                scan_key='fog_of_war_flag',
+            ),
+            CheatDefinition(
+                cheat_type=CheatType.UNLIMITED_AGENTS,
+                name="Unlimited Agents",
+                description="Remove agent recruitment caps",
+                value_type=ValueType.INT_32,
+                default_value=0,
+                cheat_value=99,
+                mode='campaign',
+                pointer_chains=['agent_cap'],
+                aob_patterns=['agent_cap_check'],
+                scan_key='agent_cap',
+            ),
         ]
 
     def activate_cheat(self, cheat_type: CheatType, address: Optional[int] = None) -> bool:
@@ -579,10 +625,12 @@ class CheatManager:
 
         matches = self.scan_pattern_signatures(cheat_def.cheat_type, max_results=1)
         if not matches:
+            logger.error("No AOB matches found for %s", cheat_def.name)
             return False
 
         pattern_name, addresses = next(iter(matches.items()))
         if not addresses:
+            logger.error("AOB match list empty for %s", cheat_def.name)
             return False
         match_address = addresses[0]
 
@@ -606,10 +654,12 @@ class CheatManager:
         nop_bytes = entry.nop_bytes if entry and entry.nop_bytes else cheat_def.overwrite_size
         original = self.memory_scanner.backend.read_bytes(match_address, nop_bytes)
         if original is None or len(original) != nop_bytes:
+            logger.error("Failed to read original bytes for NOP patch at 0x%X", match_address)
             return False
 
         patched = b'\x90' * nop_bytes
         if not self.memory_scanner.backend.write_bytes(match_address, patched):
+            logger.error("Failed to write NOP patch at 0x%X", match_address)
             return False
 
         self.active_cheats[cheat_def.cheat_type] = {
@@ -639,6 +689,7 @@ class CheatManager:
 
         payload = self._build_code_cave_payload(cheat_def, match_address)
         if not payload:
+            logger.error("Failed to build code cave payload for %s", cheat_def.name)
             return False
 
         injector = CodeCaveInjector(self.memory_scanner.backend)
@@ -648,6 +699,7 @@ class CheatManager:
             overwrite_size=cheat_def.overwrite_size,
         )
         if not patches:
+            logger.error("Failed to inject code cave for %s", cheat_def.name)
             return False
 
         self.active_cheats[cheat_def.cheat_type] = {

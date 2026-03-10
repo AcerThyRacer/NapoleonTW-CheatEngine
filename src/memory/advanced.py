@@ -790,18 +790,29 @@ class AOBScanner(_BackendMixin):
                     address += chunk_size
                     continue
                 
-                # Search for pattern in chunk
-                for i in range(len(data) - pattern_len + 1):
-                    if self._match_pattern(data, i, byte_pattern):
-                        match_addr = address + i + pattern.offset_from_match
+                # Use faster index-based search for the first byte
+                first_byte = byte_pattern[0]
+                pos = 0
+                while pos <= len(data) - pattern_len:
+                    if first_byte is not None:
+                        idx = data.find(bytes([first_byte]), pos)
+                        if idx == -1:
+                            break
+                        pos = idx
+
+                    if self._match_pattern(data, pos, byte_pattern):
+                        match_addr = address + pos + pattern.offset_from_match
                         results.append(match_addr)
                         
                         if len(results) >= max_results:
                             break
+
+                    pos += 1
                 
                 address += chunk_size
                 
-            except Exception:
+            except Exception as e:
+                logger.debug("AOB scan read error at 0x%X: %s", address, e)
                 address += chunk_size
                 continue
         
@@ -812,6 +823,11 @@ class AOBScanner(_BackendMixin):
     
     def _match_pattern(self, data: bytes, offset: int, pattern: List[Optional[int]]) -> bool:
         """Check if data at offset matches the pattern."""
+        # Fast path using slice comparison for non-wildcard patterns
+        if None not in pattern:
+            return data[offset:offset + len(pattern)] == bytes(pattern) # type: ignore
+
+        # Fallback to byte-by-byte comparison with wildcards
         for i, expected in enumerate(pattern):
             if expected is None:  # Wildcard
                 continue
@@ -867,9 +883,20 @@ class AOBScanner(_BackendMixin):
                 if not data or len(data) < pattern_len:
                     return local_results
                 
-                for i in range(len(data) - pattern_len + 1):
-                    if self._match_pattern(data, i, byte_pattern):
-                        local_results.append(chunk_addr + i + pattern.offset_from_match)
+                # Use faster index-based search for the first byte
+                first_byte = byte_pattern[0]
+                pos = 0
+                while pos <= len(data) - pattern_len:
+                    if first_byte is not None:
+                        idx = data.find(bytes([first_byte]), pos)
+                        if idx == -1:
+                            break
+                        pos = idx
+
+                    if self._match_pattern(data, pos, byte_pattern):
+                        local_results.append(chunk_addr + pos + pattern.offset_from_match)
+
+                    pos += 1
             except Exception:
                 pass
             return local_results

@@ -123,20 +123,23 @@ class PymemBackend(MemoryBackend):
     
     def read_bytes(self, address: int, size: int) -> Optional[bytes]:
         if not self._pm:
+            logger.error("PymemBackend.read_bytes: backend not open")
             return None
         try:
             return self._pm.read_bytes(address, size)
-        except Exception:
+        except Exception as e:
+            logger.error("Pymem read error at 0x%X (size %d): %s", address, size, e)
             return None
     
     def write_bytes(self, address: int, data: bytes) -> bool:
         if not self._pm:
+            logger.error("PymemBackend.write_bytes: backend not open")
             return False
         try:
             self._pm.write_bytes(address, data, len(data))
             return True
         except Exception as e:
-            logger.debug("Pymem write error at 0x%X: %s", address, e)
+            logger.error("Pymem write error at 0x%X: %s", address, e)
             return False
     
     def get_readable_regions(self) -> List[MemoryRegion]:
@@ -215,19 +218,23 @@ class PyMemoryEditorBackend(MemoryBackend):
     
     def read_bytes(self, address: int, size: int) -> Optional[bytes]:
         if not self._editor:
+            logger.error("PyMemoryEditorBackend.read_bytes: backend not open")
             return None
         try:
             return self._editor.read_process_memory(address, bytes, size)
-        except Exception:
+        except Exception as e:
+            logger.error("PyMemoryEditor read error at 0x%X (size %d): %s", address, size, e)
             return None
     
     def write_bytes(self, address: int, data: bytes) -> bool:
         if not self._editor:
+            logger.error("PyMemoryEditorBackend.write_bytes: backend not open")
             return False
         try:
             self._editor.write_process_memory(address, data)
             return True
-        except Exception:
+        except Exception as e:
+            logger.error("PyMemoryEditor write error at 0x%X: %s", address, e)
             return False
     
     def get_readable_regions(self) -> List[MemoryRegion]:
@@ -281,21 +288,25 @@ class ProcMemBackend(MemoryBackend):
     
     def read_bytes(self, address: int, size: int) -> Optional[bytes]:
         if self._mem_fd is None:
+            logger.error("ProcMemBackend.read_bytes: backend not open")
             return None
         try:
             os.lseek(self._mem_fd, address, os.SEEK_SET)
             return os.read(self._mem_fd, size)
-        except Exception:
+        except Exception as e:
+            logger.error("ProcMem read error at 0x%X (size %d): %s", address, size, e)
             return None
     
     def write_bytes(self, address: int, data: bytes) -> bool:
         if self._mem_fd is None:
+            logger.error("ProcMemBackend.write_bytes: backend not open")
             return False
         try:
             os.lseek(self._mem_fd, address, os.SEEK_SET)
             os.write(self._mem_fd, data)
             return True
-        except Exception:
+        except Exception as e:
+            logger.error("ProcMem write error at 0x%X: %s", address, e)
             return False
     
     def get_readable_regions(self) -> List[MemoryRegion]:
