@@ -15,6 +15,8 @@ import sys
 from typing import Any, List, Optional, Type, TypedDict
 from abc import ABC, abstractmethod
 
+import ctypes
+from ctypes import wintypes
 from src.utils.platform import get_platform, is_proton
 
 logger = logging.getLogger('napoleon.memory.backend')
@@ -87,6 +89,225 @@ class MemoryBackend(ABC):
                 start = pos + 1
         
         return results
+
+
+class HypervisorBackend(MemoryBackend):
+    """
+    Hardware-assisted backend utilizing EPT (Extended Page Table) hooking
+    via a lightweight hypervisor or kernel driver.
+
+    Provides shadow hooking: reads yield original bytes, execution yields patched bytes.
+    """
+
+    # Example IOCTLs for a custom hypervisor/driver (placeholder values)
+    IOCTL_HV_ATTACH = 0x222000
+    IOCTL_HV_DETACH = 0x222004
+    IOCTL_HV_READ   = 0x222008
+    IOCTL_HV_WRITE  = 0x22200C
+    IOCTL_HV_MAP_EPT_HOOK = 0x222010
+
+    def __init__(self) -> None:
+        self._pid: Optional[int] = None
+        self._driver_handle: Optional[int] = None
+
+    def open(self, pid: int) -> bool:
+        if get_platform() != 'windows':
+            return False
+
+        try:
+            # Open handle to the hypothetical hypervisor driver
+            # In a real implementation, you'd CreateFileW to a specific device like "\\\\.\\MyHvDev"
+            self._driver_handle = ctypes.windll.kernel32.CreateFileW(
+                "\\\\.\\NapoleonHypervisor",
+                0xC0000000, # GENERIC_READ | GENERIC_WRITE
+                0,
+                None,
+                3, # OPEN_EXISTING
+                0,
+                None
+            )
+
+            if self._driver_handle == -1: # INVALID_HANDLE_VALUE
+                logger.debug("Hypervisor driver not found.")
+                self._driver_handle = None
+                return False
+
+            # Attach to PID via IOCTL
+            bytes_returned = wintypes.DWORD()
+            pid_buffer = ctypes.c_uint32(pid)
+
+            success = ctypes.windll.kernel32.DeviceIoControl(
+                self._driver_handle,
+                self.IOCTL_HV_ATTACH,
+                ctypes.byref(pid_buffer),
+                ctypes.sizeof(pid_buffer),
+                None,
+                0,
+                ctypes.byref(bytes_returned),
+                None
+            )
+
+            if not success:
+                logger.error("Failed to attach hypervisor to PID %d", pid)
+                self.close()
+                return False
+
+            self._pid = pid
+            logger.info("HypervisorBackend attached to PID %d", pid)
+            return True
+
+        except Exception as e:
+            logger.error("HypervisorBackend open failed: %s", e)
+            self.close()
+            return False
+
+    def close(self) -> None:
+        if self._driver_handle is not None and self._driver_handle != -1:
+            if self._pid is not None:
+                bytes_returned = wintypes.DWORD()
+                pid_buffer = ctypes.c_uint32(self._pid)
+                ctypes.windll.kernel32.DeviceIoControl(
+                    self._driver_handle,
+                    self.IOCTL_HV_DETACH,
+                    ctypes.byref(pid_buffer),
+                    ctypes.sizeof(pid_buffer),
+                    None,
+                    0,
+                    ctypes.byref(bytes_returned),
+                    None
+                )
+            ctypes.windll.kernel32.CloseHandle(self._driver_handle)
+            self._driver_handle = None
+        self._pid = None
+
+    def read_bytes(self, address: int, size: int) -> Optional[bytes]:
+        if not self.is_open:
+            return None
+
+        # Define a structure to hold the read request
+        class ReadRequest(ctypes.Structure):
+            _fields_ = [
+                ("pid", ctypes.c_uint32),
+                ("address", ctypes.c_uint64),
+                ("size", ctypes.c_uint32)
+            ]
+
+        req = ReadRequest(self._pid, address, size)
+        buffer = ctypes.create_string_buffer(size)
+        bytes_returned = wintypes.DWORD()
+
+        success = ctypes.windll.kernel32.DeviceIoControl(
+            self._driver_handle,
+            self.IOCTL_HV_READ,
+            ctypes.byref(req),
+            ctypes.sizeof(req),
+            buffer,
+            size,
+            ctypes.byref(bytes_returned),
+            None
+        )
+
+        if success and bytes_returned.value == size:
+            return buffer.raw
+        return None
+
+    def write_bytes(self, address: int, data: bytes) -> bool:
+        """
+        Write bytes. For standard writes, this might just write to memory.
+        For EPT hooks, we use _map_ept_hook directly instead.
+        """
+        if not self.is_open:
+            return False
+
+        class WriteRequest(ctypes.Structure):
+            _fields_ = [
+                ("pid", ctypes.c_uint32),
+                ("address", ctypes.c_uint64),
+                ("size", ctypes.c_uint32)
+            ]
+
+        req = WriteRequest(self._pid, address, len(data))
+
+        # We need a continuous buffer for the request and data.
+        # Alternatively, the IOCTL can take req as input and use a different mechanism,
+        # but for simplicity let's assume the driver reads the struct, then the data buffer.
+
+        # Realistically, DeviceIoControl takes an input buffer. We can create a custom buffer:
+        in_buf = (ctypes.c_char * (ctypes.sizeof(req) + len(data)))()
+        ctypes.memmove(in_buf, ctypes.byref(req), ctypes.sizeof(req))
+        ctypes.memmove(ctypes.addressof(in_buf) + ctypes.sizeof(req), data, len(data))
+
+        bytes_returned = wintypes.DWORD()
+        success = ctypes.windll.kernel32.DeviceIoControl(
+            self._driver_handle,
+            self.IOCTL_HV_WRITE,
+            in_buf,
+            ctypes.sizeof(in_buf),
+            None,
+            0,
+            ctypes.byref(bytes_returned),
+            None
+        )
+        return bool(success)
+
+    def _map_ept_hook(self, target_address: int, shadow_page_data: bytes) -> bool:
+        """
+        Maps a shadow page via EPT to achieve stealth hooking.
+        The shadow_page_data should be exactly 4096 bytes (a page).
+        When the CPU reads, it reads the original physical page.
+        When it executes, the hypervisor swaps to this shadow page.
+        """
+        if not self.is_open or len(shadow_page_data) != 4096:
+            return False
+
+        class EPTHookRequest(ctypes.Structure):
+            _fields_ = [
+                ("pid", ctypes.c_uint32),
+                ("address", ctypes.c_uint64)
+            ]
+
+        req = EPTHookRequest(self._pid, target_address)
+        in_buf = (ctypes.c_char * (ctypes.sizeof(req) + 4096))()
+        ctypes.memmove(in_buf, ctypes.byref(req), ctypes.sizeof(req))
+        ctypes.memmove(ctypes.addressof(in_buf) + ctypes.sizeof(req), shadow_page_data, 4096)
+
+        bytes_returned = wintypes.DWORD()
+        success = ctypes.windll.kernel32.DeviceIoControl(
+            self._driver_handle,
+            self.IOCTL_HV_MAP_EPT_HOOK,
+            in_buf,
+            ctypes.sizeof(in_buf),
+            None,
+            0,
+            ctypes.byref(bytes_returned),
+            None
+        )
+        return bool(success)
+
+    def _allocate_shadow_page(self, target_address: int, payload: bytes, patch_offset: int) -> Optional[bytes]:
+        """
+        Helper: Reads the original page, applies the patch, and returns the full 4KB page.
+        """
+        page_base = target_address & ~0xFFF
+        orig_page = self.read_bytes(page_base, 4096)
+        if not orig_page:
+            return None
+
+        # Apply patch to the copy
+        patched_page = bytearray(orig_page)
+        patched_page[patch_offset:patch_offset + len(payload)] = payload
+        return bytes(patched_page)
+
+    def get_readable_regions(self) -> List[MemoryRegion]:
+        # Fallback implementation, in a real scenario the HV driver would expose MmMapIoSpace/ZwQueryVirtualMemory
+        return [
+            {'address': 0x00400000, 'size': 0x02000000},
+            {'address': 0x10000000, 'size': 0x10000000},
+        ]
+
+    @property
+    def is_open(self) -> bool:
+        return self._driver_handle is not None and self._driver_handle != -1
 
 
 class PymemBackend(MemoryBackend):
@@ -374,6 +595,7 @@ def get_backend_candidates() -> List[Type[MemoryBackend]]:
         ]
 
     return [
+        HypervisorBackend,
         PymemBackend,
         PyMemoryEditorBackend,
         ProcMemBackend,
