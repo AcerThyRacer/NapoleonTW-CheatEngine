@@ -41,26 +41,26 @@ git clone <repository>
 cd NapoleonTWCheat
 python -m venv venv
 source venv/bin/activate  # or venv\Scripts\activate on Windows
-pip install -r requirements.txt
+python -m pip install -e ".[dev,gui,memory]"
 ```
 
 ### 2. Development Dependencies
 
 ```bash
-pip install pytest pytest-qt black flake8 mypy
+python -m pytest --version
 ```
 
 ### 3. Running Tests
 
 ```bash
 # Run all tests
-pytest tests/ -v
+python -m pytest tests/ -v
 
 # Run specific test class
-pytest tests/test_main.py::TestMemoryScanner -v
+python -m pytest tests/test_main.py::TestMemoryScanner -v
 
 # Run with coverage
-pytest tests/ --cov=src --cov-report=html
+python -m pytest tests/ --cov=src --cov-report=html
 ```
 
 ## Module Documentation

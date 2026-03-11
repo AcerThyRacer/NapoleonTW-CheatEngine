@@ -16,7 +16,7 @@ call venv\Scripts\activate.bat
 
 REM Install dependencies
 echo Installing dependencies...
-pip install -r requirements.txt
+python -m pip install -e ".[dev,gui,memory]"
 
 REM Run tests
 echo Running tests...
