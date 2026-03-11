@@ -1,0 +1,145 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Napoleon Total War Memory Signatures Schema",
+  "description": "Database schema for storing AOB patterns, pointer chains, and scan guides.",
+  "type": "object",
+  "properties": {
+    "game": {
+      "type": "string",
+      "description": "The name of the target game."
+    },
+    "version": {
+      "type": "string",
+      "description": "The game version or build this table is compatible with."
+    },
+    "platform": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "List of supported platforms (e.g., windows, linux)."
+    },
+    "created": {
+      "type": "string",
+      "format": "date",
+      "description": "The date the table was created."
+    },
+    "description": {
+      "type": "string",
+      "description": "A description of the cheat table."
+    },
+    "notes": {
+      "type": "string",
+      "description": "Additional notes for users."
+    },
+    "verified": {
+      "type": "boolean",
+      "description": "Whether the table has been verified."
+    },
+    "pointer_chains": {
+      "type": "object",
+      "description": "A dictionary of pointer chains mapped by their unique names.",
+      "additionalProperties": {
+        "type": "object",
+        "properties": {
+          "module": {
+            "type": "string",
+            "description": "The base module name (e.g., 'napoleon.exe')."
+          },
+          "base_offset": {
+            "type": "string",
+            "pattern": "^0x[0-9a-fA-F]+$",
+            "description": "The initial offset from the module base address."
+          },
+          "offsets": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "pattern": "^0x[0-9a-fA-F]+$"
+            },
+            "description": "A list of offsets forming the pointer chain."
+          },
+          "type": {
+            "type": "string",
+            "enum": ["int8", "int16", "int32", "int64", "float", "double"],
+            "description": "The data type stored at the final address."
+          },
+          "description": {
+            "type": "string",
+            "description": "A brief description of what this chain points to."
+          },
+          "cheat": {
+            "type": "string",
+            "description": "The associated cheat ID."
+          },
+          "notes": {
+            "type": "string",
+            "description": "Any special notes regarding this chain."
+          }
+        },
+        "required": ["module", "base_offset", "offsets", "type", "description", "cheat"]
+      }
+    },
+    "aob_patterns": {
+      "type": "object",
+      "description": "A dictionary of Array of Bytes patterns for signature scanning.",
+      "additionalProperties": {
+        "type": "object",
+        "properties": {
+          "pattern": {
+            "type": "string",
+            "pattern": "^(?:[0-9A-Fa-f]{2}|\\?\\?|XX|xx)(?:\\s+(?:[0-9A-Fa-f]{2}|\\?\\?|XX|xx))*$",
+            "description": "The hex string representing the AOB pattern, with wildcards ?? or XX."
+          },
+          "description": {
+            "type": "string",
+            "description": "A description of the target instruction."
+          },
+          "offset_from_match": {
+            "type": "integer",
+            "description": "The offset from the start of the matched pattern to the actual instruction to patch."
+          },
+          "nop_bytes": {
+            "type": "integer",
+            "description": "The number of bytes to NOP out when patching."
+          },
+          "cheat": {
+            "type": "string",
+            "description": "The associated cheat ID."
+          },
+          "cheat_action": {
+            "type": "string",
+            "description": "A description of what the cheat does (e.g., 'NOP the write')."
+          }
+        },
+        "required": ["pattern", "description", "offset_from_match", "nop_bytes", "cheat", "cheat_action"]
+      }
+    },
+    "scan_guides": {
+      "type": "object",
+      "description": "Validation steps to guide users on finding values in-game.",
+      "additionalProperties": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string",
+            "description": "The expected value type."
+          },
+          "cheat": {
+            "type": "string",
+            "description": "The associated cheat ID."
+          },
+          "steps": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "An ordered list of steps to follow."
+          }
+        },
+        "required": ["type", "cheat", "steps"]
+      }
+    }
+  },
+  "required": ["game", "version", "platform", "pointer_chains", "aob_patterns", "scan_guides"]
+}
