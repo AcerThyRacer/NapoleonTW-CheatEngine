@@ -736,8 +736,8 @@ class AOBScanner(_BackendMixin):
             if ns.native_available:
                 self._native = ns
                 logger.info("AOBScanner: native C extension loaded")
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug("Native AOB scanner unavailable: %s", exc)
     
     def set_editor(self, editor: Any) -> None:
         """Set the memory editor."""

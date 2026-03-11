@@ -134,8 +134,11 @@ int aob_scan_buffer(
     size_t i;
     int    all_wild;
 
-    if (!data || !pattern || pattern_len == 0 || data_len < pattern_len)
-        return 0;
+    if (!data || !pattern)
+        return -1;  /* Invalid arguments */
+
+    if (pattern_len == 0 || data_len < pattern_len)
+        return 0;   /* Valid but nothing to match */
 
     /* Check whether the entire pattern is wildcards (degenerate case). */
     all_wild = 1;
@@ -226,8 +229,11 @@ int aob_scan_process(
     uint64_t addr;
     size_t   overlap;
 
-    if (!pattern || pattern_len == 0 || start_address >= end_address)
-        return 0;
+    if (!pattern)
+        return -1;  /* Invalid arguments */
+
+    if (pattern_len == 0 || start_address >= end_address)
+        return 0;   /* Valid but nothing to match */
 
     buf = (uint8_t *)malloc(CHUNK_SIZE + pattern_len);
     if (!buf)

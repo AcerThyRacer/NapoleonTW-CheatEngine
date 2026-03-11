@@ -88,7 +88,7 @@ def _compile(force: bool = False) -> Optional[Path]:
     except FileNotFoundError:
         logger.warning("C compiler '%s' not found — native scanner unavailable", cc)
         return None
-    except Exception as exc:  # noqa: BLE001
+    except (OSError, subprocess.SubprocessError) as exc:
         logger.warning("Compilation error: %s", exc)
         return None
 
@@ -264,7 +264,10 @@ class NativeAOBScanner:
             out,
             max_results,
         )
-        return [out[i] for i in range(max(count, 0))]
+        if count < 0:
+            logger.error("aob_scan_buffer returned error code %d", count)
+            return []
+        return [out[i] for i in range(count)]
 
     @staticmethod
     def _scan_buffer_python(

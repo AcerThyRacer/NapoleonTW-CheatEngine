@@ -79,6 +79,10 @@ class TestNativeAOBScanner:
         scanner = NativeAOBScanner()
         assert scanner is not None
 
+    @pytest.mark.skipif(
+        sys.platform != "linux",
+        reason="Native extension requires Linux and gcc",
+    )
     def test_native_available(self):
         """The native extension should compile and load in a Linux CI env."""
         scanner = NativeAOBScanner()
