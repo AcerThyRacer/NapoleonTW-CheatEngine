@@ -17,6 +17,7 @@ from typing import Optional, List, Dict, Any
 from dataclasses import dataclass, field
 
 from .scanner import MemoryScanner, ValueType
+from src.utils.crash_recovery import CrashRecoveryManager
 
 logger = logging.getLogger('napoleon.memory.cheats')
 
@@ -425,6 +426,7 @@ class CheatManager:
         self._healing_lock = threading.Lock()
         self._healing_in_progress = set()
         self.hook_manager = HookManager(self.memory_scanner.backend)
+        self.crash_recovery = CrashRecoveryManager()
 
         self._load_signatures()
         self.cheat_definitions = self._init_cheat_definitions()
@@ -1227,6 +1229,19 @@ class CheatManager:
             chain_entry = self.signature_db.get_chain_for_cheat(cheat_def.cheat_type.value)
             if chain_entry and chain_entry.name not in names:
                 names.append(chain_entry.name)
+
+        # Prioritize previously successful method if it exists in history
+        game_version = "unknown"
+        if self.signature_db and self.signature_db.metadata:
+            game_version = self.signature_db.metadata.version
+
+        preferred_method = self.crash_recovery.get_preferred_resolution_method(game_version, cheat_def.cheat_type.value)
+        preferred_chain = preferred_method.get("pattern_name") # In the history we saved it as pattern_name
+
+        if preferred_chain and preferred_chain in names:
+            names.remove(preferred_chain)
+            names.insert(0, preferred_chain)
+
         return names
 
     def _get_pattern_names(self, cheat_def: CheatDefinition) -> List[str]:
@@ -1236,6 +1251,19 @@ class CheatManager:
             for entry in self.signature_db.get_patterns_for_cheat(cheat_def.cheat_type.value):
                 if entry.name not in names:
                     names.append(entry.name)
+
+        # Prioritize previously successful method if it exists in history
+        game_version = "unknown"
+        if self.signature_db and self.signature_db.metadata:
+            game_version = self.signature_db.metadata.version
+
+        preferred_method = self.crash_recovery.get_preferred_resolution_method(game_version, cheat_def.cheat_type.value)
+        preferred_pattern = preferred_method.get("pattern_name")
+
+        if preferred_pattern and preferred_pattern in names:
+            names.remove(preferred_pattern)
+            names.insert(0, preferred_pattern)
+
         return names
 
     def _try_resolve_pointer_chain(self, cheat_type: CheatType) -> Optional[int]:
@@ -1375,21 +1403,71 @@ class CheatManager:
         for cheat_type in list(self.active_cheats.keys()):
             self.deactivate_cheat(cheat_type)
 
-    def save_active_cheats_state(self) -> None:
+    def save_active_cheats_state(self, game_version: str = "unknown", crashed: bool = False) -> None:
         """Save the current active cheats to be restored later (e.g., after process crash)."""
         self.saved_cheat_state = list(self.active_cheats.keys())
-        # Automatically deactivate them to clean up internal state
-        for cheat_type in self.saved_cheat_state:
-            self.deactivate_cheat(cheat_type)
 
-    def restore_saved_cheats(self) -> int:
+        # Try to resolve game version if not provided
+        if game_version == "unknown" and self.signature_db and self.signature_db.metadata:
+            game_version = self.signature_db.metadata.version
+
+        # Build a dict representing the state to save to disk
+        state_to_save = {}
+        for cheat_type, cheat_info in self.active_cheats.items():
+            state_to_save[cheat_type.value] = cheat_info
+
+        # Add tracking of cheat ownership by address to the state to save
+        self.crash_recovery.save_state(state_to_save, game_version)
+
+        # Automatically deactivate them to clean up internal state, but skip if the process crashed
+        # Attempting to deactivate cheats (write bytes) to a dead process can crash the trainer loop
+        if not crashed:
+            for cheat_type in self.saved_cheat_state:
+                self.deactivate_cheat(cheat_type)
+        else:
+            self.active_cheats.clear()
+
+    def restore_saved_cheats(self, game_version: str = "unknown") -> int:
         """Restore cheats that were saved previously. Returns number of cheats restored."""
         restored_count = 0
+
+        if game_version == "unknown" and self.signature_db and self.signature_db.metadata:
+            game_version = self.signature_db.metadata.version
+
+        # Load from disk
+        saved_state = self.crash_recovery.load_state(game_version)
+
+        # Merge with in-memory saved state
+        for cheat_data in saved_state:
+            try:
+                cheat_type = CheatType(cheat_data['cheat_type'])
+                if cheat_type not in self.saved_cheat_state:
+                    self.saved_cheat_state.append(cheat_type)
+            except ValueError:
+                continue
+
         for cheat_type in self.saved_cheat_state:
+            # Check history to see if there is a preferred method we can use to speed up activation
+            preferred_method = self.crash_recovery.get_preferred_resolution_method(game_version, cheat_type.value)
+
+            # Since the game restarted, addresses are likely invalid due to ASLR, but pattern names are useful.
+            # If there's a preferred pattern, we could theoretically modify the cheat's AOB list to try it first.
+            # However, `activate_cheat` natively cycles through the aob_patterns in the definition anyway.
+            # The most important thing is that we *do not* pass `address=preferred_address`
+            # as that points to dead/wrong memory from the previous process.
+
+            # Try normal activation (which will re-resolve via pointer chain or AOB scan)
             if self.activate_cheat(cheat_type):
                 restored_count += 1
+            else:
+                logger.warning(f"Failed to auto-restore cheat {cheat_type.value}. Address could not be resolved in the new process.")
 
         self.saved_cheat_state.clear()
+
+        if restored_count > 0:
+            logger.info(f"Restored {restored_count} cheats")
+            print(f"Restored {restored_count} cheats")
+
         return restored_count
 
     def _get_cheat_definition(self, cheat_type: CheatType) -> Optional[CheatDefinition]:

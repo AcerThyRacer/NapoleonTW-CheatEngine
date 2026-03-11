@@ -192,11 +192,22 @@ class BackgroundTrainer:
         """Callback when game starts."""
         logger.info("Game started (PID: %d)", pid)
         self._retry_count = 0
-        self._try_attach()
+        if self._try_attach():
+            if self.cheat_manager:
+                restored_count = self.cheat_manager.restore_saved_cheats()
+                if restored_count > 0:
+                    logger.info(f"Successfully auto-restored {restored_count} cheats")
     
     def _on_game_stopped(self) -> None:
         """Callback when game stops."""
         logger.info("Game stopped")
+
+        # Check if we should save active cheat state for crash recovery
+        if self.cheat_manager and self.cheat_manager.get_active_cheats():
+            logger.info("Saving active cheats state for crash recovery")
+            # Assume it might be a crash if the process suddenly stopped
+            self.cheat_manager.save_active_cheats_state(crashed=True)
+
         self._try_detach()
         self._last_game_mode = None
     
