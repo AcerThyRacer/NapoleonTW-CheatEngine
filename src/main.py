@@ -7,7 +7,10 @@ Main entry point.
 import sys
 import argparse
 import logging
+import configparser
 from pathlib import Path
+
+from src.utils.logging_config import setup_logging
 
 __version__ = "2.1.0"
 logger = logging.getLogger('napoleon.main')
@@ -109,8 +112,45 @@ def main():
         version=f'%(prog)s {__version__}'
     )
     
+    parser.add_argument(
+        '--debug',
+        action='store_true',
+        help='Enable debug logging'
+    )
+
+    parser.add_argument(
+        '--verbose',
+        '-v',
+        action='store_true',
+        help='Enable verbose output'
+    )
+
+    parser.add_argument(
+        '--ini',
+        type=str,
+        default='napoleon.ini',
+        help='Path to the .ini configuration file (default: napoleon.ini)'
+    )
+
     args = parser.parse_args()
     
+    # Process .ini configuration
+    config = configparser.ConfigParser()
+    ini_path = Path(args.ini)
+
+    log_level = logging.INFO
+    if ini_path.exists():
+        config.read(ini_path)
+        if 'Logging' in config:
+            level_str = config['Logging'].get('level', 'INFO').upper()
+            log_level = getattr(logging, level_str, logging.INFO)
+
+    # CLI args override .ini logging level
+    if args.debug or args.verbose:
+        log_level = logging.DEBUG
+
+    setup_logging(level=log_level, log_dir=Path.cwd())
+
     # Default to GUI if no option specified
     if not any([args.gui, args.cli, args.trainer, args.memory_scanner, args.background, args.panel]):
         args.gui = True
