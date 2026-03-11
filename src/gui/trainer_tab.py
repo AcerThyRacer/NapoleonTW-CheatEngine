@@ -69,6 +69,11 @@ class TrainerTab(QWidget):
         self.deactivate_all_btn = QPushButton("Deactivate All Cheats")
         self.deactivate_all_btn.clicked.connect(self._deactivate_all_cheats)
         control_layout.addWidget(self.deactivate_all_btn)
+
+        self.repair_hooks_btn = QPushButton("Repair All Hooks")
+        self.repair_hooks_btn.clicked.connect(self._repair_all_hooks)
+        self.repair_hooks_btn.setEnabled(False)
+        control_layout.addWidget(self.repair_hooks_btn)
         
         layout.addLayout(control_layout)
         
@@ -76,6 +81,11 @@ class TrainerTab(QWidget):
         self.status_label = QLabel("Trainer inactive")
         self.status_label.setStyleSheet("color: #888888; font-style: italic;")
         layout.addWidget(self.status_label)
+
+        # Hook status label
+        self.hook_status_label = QLabel("")
+        self.hook_status_label.setStyleSheet("color: #888888; font-style: italic;")
+        layout.addWidget(self.hook_status_label)
         
         self.setLayout(layout)
         
@@ -232,6 +242,7 @@ class TrainerTab(QWidget):
             self.trainer_detach_btn.setToolTip("")
             self.start_hotkeys_btn.setEnabled(True)
             self.start_hotkeys_btn.setToolTip("")
+            self.repair_hooks_btn.setEnabled(True)
             self.status_label.setText("Trainer ready - attach successful")
             self.status_label.setStyleSheet("color: #00ff00;")
         else:
@@ -250,8 +261,10 @@ class TrainerTab(QWidget):
         self.trainer_detach_btn.setToolTip("Attach to a game process first to detach")
         self.start_hotkeys_btn.setEnabled(False)
         self.start_hotkeys_btn.setToolTip("Attach to a game process first to use hotkeys")
+        self.repair_hooks_btn.setEnabled(False)
         self.status_label.setText("Trainer detached")
         self.status_label.setStyleSheet("color: #888888;")
+        self.hook_status_label.setText("")
     
     def _start_hotkeys(self) -> None:
         """Start hotkey listener."""
@@ -318,6 +331,24 @@ class TrainerTab(QWidget):
         self.status_label.setText("All cheats deactivated")
         self.status_label.setStyleSheet("color: #ff4444;")
     
+    def _repair_all_hooks(self) -> None:
+        """Manually trigger hook validation and repair."""
+        if not self.scanner.is_attached():
+            return
+
+        status = self.cheat_manager.validate_hooks(repair=True)
+        restored = sum(1 for s in status.values() if s == 'restored')
+        corrupted = sum(1 for s in status.values() if s == 'corrupted')
+
+        if restored > 0 or corrupted > 0:
+            msg = f"Hook repair complete.\nRestored: {restored}\nFailed to restore: {corrupted}"
+            if corrupted > 0:
+                QMessageBox.warning(self, "Hook Repair", msg)
+            else:
+                QMessageBox.information(self, "Hook Repair", msg)
+        else:
+            QMessageBox.information(self, "Hook Repair", "All hooks are intact. No repair needed.")
+
     def _update_cheat_status(self) -> None:
         """Update cheat status display."""
         was_attached = getattr(self, '_was_attached', False)
@@ -342,6 +373,23 @@ class TrainerTab(QWidget):
             else:
                 self.status_label.setText("Trainer inactive")
                 self.status_label.setStyleSheet("color: #888888;")
+                self.hook_status_label.setText("")
+
+        # Update hook status
+        if is_attached:
+            hook_status = self.cheat_manager.validate_hooks(repair=False)
+            corrupted = sum(1 for s in hook_status.values() if s == 'corrupted')
+            total = len(hook_status)
+
+            if total == 0:
+                self.hook_status_label.setText("No active hooks")
+                self.hook_status_label.setStyleSheet("color: #888888;")
+            elif corrupted > 0:
+                self.hook_status_label.setText(f"Warning: {corrupted}/{total} hooks corrupted! Click 'Repair All Hooks'")
+                self.hook_status_label.setStyleSheet("color: #ff4444;")
+            else:
+                self.hook_status_label.setText(f"All hooks active ({total})")
+                self.hook_status_label.setStyleSheet("color: #00ff00;")
 
     def _handle_process_crash(self) -> None:
         """Handle game process unexpected detachment."""
@@ -397,6 +445,8 @@ class TrainerTab(QWidget):
         """Cleanup resources."""
         self.update_timer.stop()
         self.hotkey_manager.stop()
+        if hasattr(self.cheat_manager, 'stop_validation_thread'):
+            self.cheat_manager.stop_validation_thread()
         self.scanner.detach()
 
 
