@@ -34,12 +34,13 @@ class MainWindow(QMainWindow):
     Main application window.
     """
     
-    def __init__(self):
+    def __init__(self, config_manager: ConfigManager | None = None):
         """Initialize main window."""
         if not PYQT_AVAILABLE:
             raise ImportError("PyQt6 is required for the GUI")
         
         super().__init__()
+        self.config_manager = config_manager
         
         self.setWindowTitle("Napoleon Total War Cheat Engine")
         self.setGeometry(100, 100, 1200, 800)
@@ -299,8 +300,8 @@ class MainWindow(QMainWindow):
         event.accept()
 
 
-def main():
-    """Main entry point for the GUI application."""
+def run_main_window(service):
+    """Create and launch the standard GUI window."""
     if not PYQT_AVAILABLE:
         print("PyQt6 is required. Install with: pip install PyQt6")
         sys.exit(1)
@@ -309,8 +310,7 @@ def main():
     app.setApplicationName("Napoleon Total War Cheat Engine")
     app.setOrganizationName("NTWCheat")
 
-    config_manager = ConfigManager()
-    config_manager.load()
+    config_manager = service.get_config_manager()
     if not run_first_run_setup(app, config_manager):
         return
     
@@ -336,10 +336,20 @@ def main():
     palette.setColor(QPalette.ColorRole.HighlightedText, QColor(255, 255, 255))
     app.setPalette(palette)
     
-    window = MainWindow()
+    window = MainWindow(config_manager=config_manager)
     window.show()
     
     sys.exit(app.exec())
+
+
+def main(service=None):
+    """Main entry point for the GUI application."""
+    from src.engine_service import EngineService
+
+    active_service = service or EngineService()
+    if service is None:
+        return active_service.run(run_main_window, load_plugins=True)
+    return run_main_window(active_service)
 
 
 if __name__ == "__main__":

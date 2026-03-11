@@ -703,17 +703,21 @@ class InteractiveCLI(cmd.Cmd):
                 pass
 
 
-def main():
+def run_cli(_service=None):
     """Launch the interactive CLI."""
-    try:
-        from src.utils.logging_config import setup_logging
-        setup_logging(console=False)
-    except ImportError:
-        pass
-    
     cli = InteractiveCLI()
     try:
         cli.cmdloop()
     except KeyboardInterrupt:
         print("\n\n👋 Au revoir!")
         cli._cleanup()
+
+
+def main(service=None):
+    """Launch the interactive CLI using the shared engine service."""
+    from src.engine_service import EngineService
+
+    active_service = service or EngineService()
+    if service is None:
+        return active_service.run(run_cli)
+    return run_cli(active_service)

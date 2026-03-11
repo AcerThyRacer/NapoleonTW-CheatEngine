@@ -443,3 +443,20 @@ class NapoleonWebServer:
 def create_app(state: Optional[ServerState] = None) -> NapoleonWebServer:
     """Create and return a configured ``NapoleonWebServer`` instance."""
     return NapoleonWebServer(state=state)
+
+
+def run_server(service) -> NapoleonWebServer:
+    """Create the web backend using the shared engine service."""
+    app = create_app()
+    service.logger.info("Web application backend initialized")
+    return app
+
+
+def main(service=None) -> NapoleonWebServer:
+    """Main entry point for the web backend."""
+    from src.engine_service import EngineService
+
+    active_service = service or EngineService()
+    if service is None:
+        return active_service.run(run_server)
+    return run_server(active_service)

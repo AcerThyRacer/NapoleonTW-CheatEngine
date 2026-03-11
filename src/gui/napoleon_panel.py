@@ -1018,8 +1018,8 @@ if PYQT_AVAILABLE:
                 self._bg.setGeometry(0, 0, self.width(), self.height())
 
 
-def main():
-    """Main entry point for the control panel."""
+def run_control_panel(service):
+    """Create and launch the control panel."""
     if not PYQT_AVAILABLE:
         print("PyQt6 is required. Install with: pip install PyQt6")
         sys.exit(1)
@@ -1042,8 +1042,7 @@ def main():
     palette.setColor(QPalette.ColorRole.HighlightedText, QColor(26, 37, 47))
     app.setPalette(palette)
 
-    config_manager = ConfigManager()
-    config_manager.load()
+    config_manager = service.get_config_manager()
     if not run_first_run_setup(app, config_manager):
         return
 
@@ -1051,6 +1050,16 @@ def main():
     window.show()
     
     sys.exit(app.exec())
+
+
+def main(service=None):
+    """Main entry point for the control panel."""
+    from src.engine_service import EngineService
+
+    active_service = service or EngineService()
+    if service is None:
+        return active_service.run(run_control_panel, load_plugins=True)
+    return run_control_panel(active_service)
 
 
 if __name__ == "__main__":
