@@ -69,6 +69,7 @@ class FileEditorTab(QWidget):
         self.esf_save_btn = QPushButton("Save Changes")
         self.esf_save_btn.clicked.connect(self._save_esf_file)
         self.esf_save_btn.setEnabled(False)
+        self.esf_save_btn.setToolTip("Open a save game first to save changes")
         file_layout.addWidget(self.esf_save_btn)
         
         self.esf_export_xml_btn = QPushButton("Export to XML")
@@ -118,6 +119,7 @@ class FileEditorTab(QWidget):
         self.script_save_btn = QPushButton("Save")
         self.script_save_btn.clicked.connect(self._save_script_file)
         self.script_save_btn.setEnabled(False)
+        self.script_save_btn.setToolTip("Open a script first to save changes")
         file_layout.addWidget(self.script_save_btn)
         
         self.script_revert_btn = QPushButton("Revert")
@@ -168,6 +170,7 @@ class FileEditorTab(QWidget):
         self.config_save_btn = QPushButton("Save")
         self.config_save_btn.clicked.connect(self._save_config_file)
         self.config_save_btn.setEnabled(False)
+        self.config_save_btn.setToolTip("Open configuration first to save changes")
         file_layout.addWidget(self.config_save_btn)
         
         self.config_reset_btn = QPushButton("Reset to Defaults")
@@ -222,6 +225,7 @@ class FileEditorTab(QWidget):
             if self.esf_editor.load_file(file_path):
                 self.esf_file_label.setText(f"Loaded: {file_path}")
                 self.esf_save_btn.setEnabled(True)
+                self.esf_save_btn.setToolTip("")
                 self._populate_esf_tree()
     
     def _save_esf_file(self) -> None:
@@ -301,6 +305,7 @@ class FileEditorTab(QWidget):
             if self.script_editor.load_file(file_path):
                 self.script_file_label.setText(f"Loaded: {file_path}")
                 self.script_save_btn.setEnabled(True)
+                self.script_save_btn.setToolTip("")
                 self.script_editor_widget.setText(self.script_editor.content)
     
     def _save_script_file(self) -> None:
@@ -315,7 +320,11 @@ class FileEditorTab(QWidget):
         """Revert script changes."""
         if self.script_editor.revert_changes():
             self.script_editor_widget.setText(self.script_editor.content)
+            # Reverting does not remove the file, so it should still be loaded.
+            # In file_editor_tab.py, if we reverted, we could disable save if not modified,
+            # but setting enabled to False with tooltip is consistent with the original design.
             self.script_save_btn.setEnabled(False)
+            self.script_save_btn.setToolTip("No unsaved changes")
     
     def _set_treasury(self) -> None:
         """Set treasury quick edit."""
@@ -336,6 +345,7 @@ class FileEditorTab(QWidget):
         if self.config_editor.load_file():
             self.script_file_label.setText("Loaded: preferences.script")
             self.config_save_btn.setEnabled(True)
+            self.config_save_btn.setToolTip("")
             self._populate_config_tree()
     
     def _save_config_file(self) -> None:

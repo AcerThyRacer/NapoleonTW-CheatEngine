@@ -97,11 +97,13 @@ class TrainerTab(QWidget):
         self.trainer_detach_btn = QPushButton("Detach")
         self.trainer_detach_btn.clicked.connect(self._detach_trainer)
         self.trainer_detach_btn.setEnabled(False)
+        self.trainer_detach_btn.setToolTip("Attach to a game process first to detach")
         layout.addWidget(self.trainer_detach_btn)
         
         self.start_hotkeys_btn = QPushButton("Start Hotkeys")
         self.start_hotkeys_btn.clicked.connect(self._start_hotkeys)
         self.start_hotkeys_btn.setEnabled(False)
+        self.start_hotkeys_btn.setToolTip("Attach to a game process first to use hotkeys")
         layout.addWidget(self.start_hotkeys_btn)
         
         group.setLayout(layout)
@@ -225,8 +227,11 @@ class TrainerTab(QWidget):
 
             self.trainer_status_label.setText(f"Status: Attached to {self.process_manager.process_name}")
             self.trainer_attach_btn.setEnabled(False)
+            self.trainer_attach_btn.setToolTip("Already attached to a process")
             self.trainer_detach_btn.setEnabled(True)
+            self.trainer_detach_btn.setToolTip("")
             self.start_hotkeys_btn.setEnabled(True)
+            self.start_hotkeys_btn.setToolTip("")
             self.status_label.setText("Trainer ready - attach successful")
             self.status_label.setStyleSheet("color: #00ff00;")
         else:
@@ -240,8 +245,11 @@ class TrainerTab(QWidget):
         self.scanner.detach()
         self.trainer_status_label.setText("Status: Not attached")
         self.trainer_attach_btn.setEnabled(True)
+        self.trainer_attach_btn.setToolTip("")
         self.trainer_detach_btn.setEnabled(False)
+        self.trainer_detach_btn.setToolTip("Attach to a game process first to detach")
         self.start_hotkeys_btn.setEnabled(False)
+        self.start_hotkeys_btn.setToolTip("Attach to a game process first to use hotkeys")
         self.status_label.setText("Trainer detached")
         self.status_label.setStyleSheet("color: #888888;")
     
