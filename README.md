@@ -47,12 +47,24 @@
 
 ## ⚡ Quick Start
 
+### Installation Profiles
+```bash
+# Runtime only
+pip install .
+
+# GUI + memory tooling
+pip install ".[gui,memory]"
+
+# Full development environment
+pip install -e ".[dev,gui,memory]"
+```
+
 ### Windows
 ```powershell
 cd C:\Path\To\NapoleonTWCheat
 python -m venv .venv
 .venv\Scripts\activate
-pip install -r requirements.txt
+pip install ".[gui,memory]"
 python src/main.py --gui
 ```
 
@@ -61,7 +73,7 @@ python src/main.py --gui
 cd /home/ace/Downloads/NapoleonTWCheat
 python3 -m venv .venv
 source .venv/bin/activate
-pip install -r requirements.txt
+pip install ".[gui,memory]"
 
 # Set memory permissions (run once)
 sudo setcap cap_sys_ptrace=eip $(which python3)
@@ -173,6 +185,7 @@ python src/main.py --background
 Run the full test suite:
 ```bash
 source .venv/bin/activate
+python -m pip install -e ".[dev,gui,memory]"
 python -m pytest tests/ -v
 ```
 

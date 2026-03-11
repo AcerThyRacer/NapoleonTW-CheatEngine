@@ -8,8 +8,8 @@
 # Navigate to the project
 cd /home/ace/Downloads/NapoleonTWCheat
 
-# Install Python dependencies (if not already done)
-pip install -r requirements.txt
+# Install the Python dev environment
+pip install -e ".[dev,gui,memory]"
 
 # Install Node.js dependencies
 cd frontend
