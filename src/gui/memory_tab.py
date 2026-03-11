@@ -46,8 +46,8 @@ class MemoryScannerTab(QWidget):
         
         # Results table
         self.results_table = QTableWidget()
-        self.results_table.setColumnCount(3)
-        self.results_table.setHorizontalHeaderLabels(["Address", "Value", "Type"])
+        self.results_table.setColumnCount(4)
+        self.results_table.setHorizontalHeaderLabels(["Address", "Value", "Type", "Suggested Match"])
         self.results_table.horizontalHeader().stretchLastSection(True)
         layout.addWidget(QLabel("Scan Results:"))
         layout.addWidget(self.results_table)
@@ -299,9 +299,13 @@ class MemoryScannerTab(QWidget):
             value_item = QTableWidgetItem(str(result.value))
             type_item = QTableWidgetItem(result.value_type.value)
             
+            suggested_type = self.scanner.suggest_value_type(result)
+            suggested_item = QTableWidgetItem(suggested_type if suggested_type else "")
+
             self.results_table.setItem(i, 0, addr_item)
             self.results_table.setItem(i, 1, value_item)
             self.results_table.setItem(i, 2, type_item)
+            self.results_table.setItem(i, 3, suggested_item)
     
     def _clear_results(self) -> None:
         """Clear scan results."""

@@ -87,6 +87,41 @@ class TestMemoryScanner:
         assert count == 2
         assert [result.address for result in scanner.get_results()] == [0x1000, 0x1008]
 
+    def test_suggest_value_type(self):
+        from src.memory import ProcessManager, MemoryScanner
+        from src.memory.scanner import ScanResult, ValueType
+
+        pm = ProcessManager()
+        scanner = MemoryScanner(pm)
+
+        # Test Health suggestion
+        health_res = ScanResult(address=0x100, value=150.5, value_type=ValueType.FLOAT, previous_value=160.0)
+        assert scanner.suggest_value_type(health_res) == 'Health'
+
+        # Test Health / Morale suggestion (no previous value)
+        health_morale_res = ScanResult(address=0x104, value=150.5, value_type=ValueType.FLOAT, previous_value=None)
+        assert scanner.suggest_value_type(health_morale_res) == 'Health / Morale'
+
+        # Test Gold suggestion (large decrease by multiple of 5)
+        gold_res = ScanResult(address=0x108, value=4000, value_type=ValueType.INT_32, previous_value=4050)
+        assert scanner.suggest_value_type(gold_res) == 'Gold'
+
+        # Test Gold suggestion (large value, no previous)
+        gold_large_res = ScanResult(address=0x10C, value=6000, value_type=ValueType.INT_32, previous_value=None)
+        assert scanner.suggest_value_type(gold_large_res) == 'Gold'
+
+        # Test Ammunition suggestion (decreased by exactly 1)
+        ammo_res = ScanResult(address=0x110, value=49, value_type=ValueType.INT_32, previous_value=50)
+        assert scanner.suggest_value_type(ammo_res) == 'Ammunition'
+
+        # Test Ammunition suggestion (no previous value, small int)
+        ammo_small_res = ScanResult(address=0x114, value=49, value_type=ValueType.INT_32, previous_value=None)
+        assert scanner.suggest_value_type(ammo_small_res) == 'Ammunition'
+
+        # Test inconclusive suggestion
+        inconclusive_res = ScanResult(address=0x118, value=500, value_type=ValueType.INT_16, previous_value=500)
+        assert scanner.suggest_value_type(inconclusive_res) is None
+
 
 class TestMemoryAdvanced:
     """Tests for advanced memory operations."""
