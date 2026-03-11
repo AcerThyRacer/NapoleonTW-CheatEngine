@@ -483,7 +483,7 @@ class CheatManager:
                 self._healing_in_progress.remove(cheat_type)
 
         return success
-=======
+
     def validate_hooks(self) -> None:
         """Periodic validation of active hooks. This should be called from the main loop."""
         if self.hook_manager:
@@ -491,7 +491,6 @@ class CheatManager:
             if restored:
                 for addr in restored:
                     logger.warning(f"Hook at 0x{addr:X} auto-restored.")
->>>>>>> origin/feature/memory-hook-chains-1968259910475237343
 
     def _load_signatures(self) -> None:
         """Load the JSON-backed pointer-chain and AOB signature database."""
