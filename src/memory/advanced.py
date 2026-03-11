@@ -807,11 +807,23 @@ class AOBScanner(_BackendMixin):
     This is used to find game instructions rather than data values,
     which makes cheats more robust across game patches since the
     instruction patterns often remain similar even when addresses change.
+    
+    When the native C extension is available it is used automatically
+    for significantly faster scanning; otherwise falls back to pure Python.
     """
     
     def __init__(self, editor: Optional[Any] = None):
         """Initialize AOB scanner."""
         self.editor = editor
+        self._native: Optional[Any] = None
+        try:
+            from src.memory.native_aob import NativeAOBScanner
+            ns = NativeAOBScanner()
+            if ns.native_available:
+                self._native = ns
+                logger.info("AOBScanner: native C extension loaded")
+        except Exception as exc:
+            logger.debug("Native AOB scanner unavailable: %s", exc)
     
     def set_editor(self, editor: Any) -> None:
         """Set the memory editor."""
@@ -943,50 +955,61 @@ class AOBScanner(_BackendMixin):
                     address += chunk_size
                     continue
                 
-                # FAST PATH 1: Non-wildcard pattern - use direct bytes find
-                if not has_wildcards:
-                    search_pos = 0
-                    while search_pos <= len(data) - pattern_len:
-                        pos = data.find(pattern_bytes, search_pos)
-                        if pos == -1:
-                            break
-                        
-                        match_addr = address + pos + pattern.offset_from_match
-                        results.append(match_addr)
-                        
-                        if len(results) >= max_results:
-                            break
-                        
-                        search_pos = pos + 1
-                
-                # FAST PATH 2: Pattern starts with non-wildcard - use index search
-                elif first_byte is not None:
-                    search_pos = 0
-                    while search_pos <= len(data) - pattern_len:
-                        # Find all occurrences of first byte
-                        pos = data.find(bytes([first_byte]), search_pos)
-                        if pos == -1:
-                            break
-                        
-                        # Only do full pattern match if first byte matches
-                        if self._match_pattern(data, pos, byte_pattern):
+                # Search for pattern in chunk
+                # Use native scanner if available for performance
+                if self._native is not None:
+                    hits = self._native.scan_buffer(
+                        data, pattern.pattern,
+                        base_address=address,
+                        max_results=max_results - len(results),
+                    )
+                    for addr in hits:
+                        results.append(addr + pattern.offset_from_match)
+                else:
+                    # FAST PATH 1: Non-wildcard pattern - use direct bytes find
+                    if not has_wildcards:
+                        search_pos = 0
+                        while search_pos <= len(data) - pattern_len:
+                            pos = data.find(pattern_bytes, search_pos)
+                            if pos == -1:
+                                break
+                            
                             match_addr = address + pos + pattern.offset_from_match
                             results.append(match_addr)
                             
                             if len(results) >= max_results:
                                 break
-                        
-                        search_pos = pos + 1
-                
-                # SLOW PATH: Pattern starts with wildcard - check every position
-                else:
-                    for i in range(len(data) - pattern_len + 1):
-                        if self._match_pattern(data, i, byte_pattern):
-                            match_addr = address + i + pattern.offset_from_match
-                            results.append(match_addr)
                             
-                            if len(results) >= max_results:
+                            search_pos = pos + 1
+                    
+                    # FAST PATH 2: Pattern starts with non-wildcard - use index search
+                    elif first_byte is not None:
+                        search_pos = 0
+                        while search_pos <= len(data) - pattern_len:
+                            # Find all occurrences of first byte
+                            pos = data.find(bytes([first_byte]), search_pos)
+                            if pos == -1:
                                 break
+                            
+                            # Only do full pattern match if first byte matches
+                            if self._match_pattern(data, pos, byte_pattern):
+                                match_addr = address + pos + pattern.offset_from_match
+                                results.append(match_addr)
+                                
+                                if len(results) >= max_results:
+                                    break
+                            
+                            search_pos = pos + 1
+                    
+                    # SLOW PATH: Pattern starts with wildcard - check every position
+                    else:
+                        for i in range(len(data) - pattern_len + 1):
+                            if self._match_pattern(data, i, byte_pattern):
+                                match_addr = address + i + pattern.offset_from_match
+                                results.append(match_addr)
+                                
+                                if len(results) >= max_results:
+                                    break
                 
                 address += chunk_size
                 
@@ -1056,9 +1079,17 @@ class AOBScanner(_BackendMixin):
                 if not data or len(data) < pattern_len:
                     return local_results
                 
-                for i in range(len(data) - pattern_len + 1):
-                    if self._match_pattern(data, i, byte_pattern):
-                        local_results.append(chunk_addr + i + pattern.offset_from_match)
+                if self._native is not None:
+                    hits = self._native.scan_buffer(
+                        data, pattern.pattern,
+                        base_address=chunk_addr,
+                    )
+                    for addr in hits:
+                        local_results.append(addr + pattern.offset_from_match)
+                else:
+                    for i in range(len(data) - pattern_len + 1):
+                        if self._match_pattern(data, i, byte_pattern):
+                            local_results.append(chunk_addr + i + pattern.offset_from_match)
             except Exception:
                 pass
             return local_results

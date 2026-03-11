@@ -22,6 +22,7 @@ from .watchpoints import (
     MemoryWatchpoint, TriggerAction, ConditionType,
 )
 from .ml_predictor import MLPredictor
+from .native_aob import NativeAOBScanner
 
 __all__ = [
     'ProcessManager',
@@ -59,4 +60,5 @@ __all__ = [
     'TriggerAction',
     'ConditionType',
     'MLPredictor',
+    'NativeAOBScanner',
 ]
