@@ -98,10 +98,11 @@ class TestDXVKInstaller:
 class TestStartupPluginLoading:
     """Tests for the GUI startup plugin hook."""
 
-    def test_launch_gui_loads_startup_plugins_before_gui(self):
+    def test_launch_gui_uses_engine_service_before_gui(self):
         import src.main as main_module
 
         gui_main = Mock()
+        service = Mock()
         real_import = __import__
 
         def fake_import(name, globals=None, locals=None, fromlist=(), level=0):
@@ -111,9 +112,14 @@ class TestStartupPluginLoading:
                 return types.SimpleNamespace(main=gui_main)
             return real_import(name, globals, locals, fromlist, level)
 
-        with patch.object(main_module, '_load_startup_plugins') as mock_load_plugins, \
-             patch('builtins.__import__', side_effect=fake_import):
-            main_module.launch_gui()
+        def fake_run(runner, *, load_plugins=False):
+            assert load_plugins is True
+            return runner(service)
 
-        mock_load_plugins.assert_called_once_with()
-        gui_main.assert_called_once_with()
+        service.run.side_effect = fake_run
+
+        with patch('builtins.__import__', side_effect=fake_import):
+            main_module.launch_gui(service)
+
+        service.run.assert_called_once()
+        gui_main.assert_called_once_with(service=service)
