@@ -16,6 +16,7 @@ from .advanced import (
 from .signatures import SignatureDatabase, SignatureEntry, ChainEntry, PatternMetadata
 from .speedhack import SpeedhackManager
 from .teleport import TeleportManager, Coordinates, TeleportTarget
+from .native_aob import NativeAOBScanner
 
 __all__ = [
     'ProcessManager',
@@ -41,4 +42,5 @@ __all__ = [
     'TeleportManager',
     'Coordinates',
     'TeleportTarget',
+    'NativeAOBScanner',
 ]

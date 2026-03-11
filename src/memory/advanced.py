@@ -721,11 +721,23 @@ class AOBScanner(_BackendMixin):
     This is used to find game instructions rather than data values,
     which makes cheats more robust across game patches since the
     instruction patterns often remain similar even when addresses change.
+    
+    When the native C extension is available it is used automatically
+    for significantly faster scanning; otherwise falls back to pure Python.
     """
     
     def __init__(self, editor: Optional[Any] = None):
         """Initialize AOB scanner."""
         self.editor = editor
+        self._native: Optional[Any] = None
+        try:
+            from src.memory.native_aob import NativeAOBScanner
+            ns = NativeAOBScanner()
+            if ns.native_available:
+                self._native = ns
+                logger.info("AOBScanner: native C extension loaded")
+        except Exception:
+            pass
     
     def set_editor(self, editor: Any) -> None:
         """Set the memory editor."""
@@ -791,13 +803,22 @@ class AOBScanner(_BackendMixin):
                     continue
                 
                 # Search for pattern in chunk
-                for i in range(len(data) - pattern_len + 1):
-                    if self._match_pattern(data, i, byte_pattern):
-                        match_addr = address + i + pattern.offset_from_match
-                        results.append(match_addr)
-                        
-                        if len(results) >= max_results:
-                            break
+                if self._native is not None:
+                    hits = self._native.scan_buffer(
+                        data, pattern.pattern,
+                        base_address=address,
+                        max_results=max_results - len(results),
+                    )
+                    for addr in hits:
+                        results.append(addr + pattern.offset_from_match)
+                else:
+                    for i in range(len(data) - pattern_len + 1):
+                        if self._match_pattern(data, i, byte_pattern):
+                            match_addr = address + i + pattern.offset_from_match
+                            results.append(match_addr)
+                            
+                            if len(results) >= max_results:
+                                break
                 
                 address += chunk_size
                 
@@ -867,9 +888,17 @@ class AOBScanner(_BackendMixin):
                 if not data or len(data) < pattern_len:
                     return local_results
                 
-                for i in range(len(data) - pattern_len + 1):
-                    if self._match_pattern(data, i, byte_pattern):
-                        local_results.append(chunk_addr + i + pattern.offset_from_match)
+                if self._native is not None:
+                    hits = self._native.scan_buffer(
+                        data, pattern.pattern,
+                        base_address=chunk_addr,
+                    )
+                    for addr in hits:
+                        local_results.append(addr + pattern.offset_from_match)
+                else:
+                    for i in range(len(data) - pattern_len + 1):
+                        if self._match_pattern(data, i, byte_pattern):
+                            local_results.append(chunk_addr + i + pattern.offset_from_match)
             except Exception:
                 pass
             return local_results
