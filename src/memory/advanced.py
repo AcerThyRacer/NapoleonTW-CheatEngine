@@ -1149,6 +1149,424 @@ class AOBScanner(_BackendMixin):
 
 
 # ============================================================================
+# VMT (Virtual Method Table) Hooking
+# ============================================================================
+
+class VMTHooker(_BackendMixin):
+    """
+    Virtual Method Table (VMT) Hooking.
+
+    This technique intercepts virtual method calls by replacing function pointers
+    in an object's VMT. It is useful for intercepting game class method calls
+    (e.g., unit update ticks) without patching code.
+    """
+
+    def __init__(self, editor: Optional[Any] = None):
+        """Initialize VMT hooker."""
+        self.editor = editor
+        self._hooks: Dict[int, Dict[int, int]] = {}  # {vmt_address: {index: original_ptr}}
+
+    def set_editor(self, editor: Any) -> None:
+        """Set the memory editor."""
+        self.editor = editor
+
+    def _read_ptr(self, address: int) -> Optional[int]:
+        """Read a pointer from memory (assumes 32-bit since Napoleon TW is 32-bit)."""
+        data = self._read_mem(address, 4)
+        if data and len(data) == 4:
+            return struct.unpack('<I', data)[0]
+        return None
+
+    def _write_ptr(self, address: int, ptr: int) -> bool:
+        """Write a pointer to memory."""
+        data = struct.pack('<I', ptr)
+        return self._write_mem(address, data)
+
+    def hook(self, object_address: int, method_index: int, hook_func_ptr: int) -> bool:
+        """
+        Hook a virtual method by replacing its pointer in the VMT.
+
+        Args:
+            object_address: Memory address of the object instance
+            method_index: Index of the virtual method in the VMT
+            hook_func_ptr: Function pointer to the hook function
+
+        Returns:
+            bool: True if hooked successfully
+        """
+        if not self.editor:
+            logger.error("No editor set for VMT hook")
+            return False
+
+        # Get VMT address (first pointer in object instance)
+        vmt_address = self._read_ptr(object_address)
+        if not vmt_address:
+            logger.error("Could not read VMT address from object 0x%08X", object_address)
+            return False
+
+        # Calculate address of the method pointer in the VMT
+        method_ptr_address = vmt_address + (method_index * 4)
+
+        # Read original function pointer
+        original_ptr = self._read_ptr(method_ptr_address)
+        if not original_ptr:
+            logger.error("Could not read original method pointer from VMT 0x%08X at index %d", vmt_address, method_index)
+            return False
+
+        # Store original pointer for unhooking
+        if vmt_address not in self._hooks:
+            self._hooks[vmt_address] = {}
+
+        if method_index not in self._hooks[vmt_address]:
+            self._hooks[vmt_address][method_index] = original_ptr
+
+        # Write hook function pointer
+        if not self._write_ptr(method_ptr_address, hook_func_ptr):
+            logger.error("Failed to write hook pointer to VMT 0x%08X at index %d", vmt_address, method_index)
+            return False
+
+        logger.info("VMT Hook installed at 0x%08X (index %d). Replaced 0x%08X with 0x%08X", vmt_address, method_index, original_ptr, hook_func_ptr)
+        return True
+
+    def unhook(self, object_address: int, method_index: int) -> bool:
+        """
+        Unhook a virtual method by restoring its original pointer in the VMT.
+
+        Args:
+            object_address: Memory address of the object instance
+            method_index: Index of the virtual method in the VMT
+
+        Returns:
+            bool: True if unhooked successfully
+        """
+        if not self.editor:
+            return False
+
+        vmt_address = self._read_ptr(object_address)
+        if not vmt_address:
+            return False
+
+        if vmt_address not in self._hooks or method_index not in self._hooks[vmt_address]:
+            logger.warning("No VMT hook found at 0x%08X index %d", vmt_address, method_index)
+            return False
+
+        original_ptr = self._hooks[vmt_address][method_index]
+        method_ptr_address = vmt_address + (method_index * 4)
+
+        if not self._write_ptr(method_ptr_address, original_ptr):
+            logger.error("Failed to restore original pointer to VMT 0x%08X at index %d", vmt_address, method_index)
+            return False
+
+        del self._hooks[vmt_address][method_index]
+        if not self._hooks[vmt_address]:
+            del self._hooks[vmt_address]
+
+        logger.info("VMT Hook removed at 0x%08X (index %d). Restored 0x%08X", vmt_address, method_index, original_ptr)
+        return True
+
+    def unhook_all(self) -> None:
+        """Unhook all active VMT hooks."""
+        if not self.editor:
+            return
+
+        for vmt_address, hooks in list(self._hooks.items()):
+            for method_index, original_ptr in list(hooks.items()):
+                method_ptr_address = vmt_address + (method_index * 4)
+                self._write_ptr(method_ptr_address, original_ptr)
+        self._hooks.clear()
+        logger.info("All VMT hooks removed.")
+
+
+# ============================================================================
+# IAT (Import Address Table) Hooking
+# ============================================================================
+
+class IATHooker(_BackendMixin):
+    """
+    Import Address Table (IAT) Hooking.
+
+    This technique intercepts Windows API calls by replacing function pointers
+    in a module's IAT. It is useful for intercepting file reads, registry access,
+    network calls, or preventing anti-cheat checks.
+    """
+
+    def __init__(self, editor: Optional[Any] = None, pid: Optional[int] = None):
+        """Initialize IAT hooker."""
+        self.editor = editor
+        self.pid = pid
+        self._hooks: Dict[str, Dict[str, Dict[str, int]]] = {} # {module: {dll_name: {func_name: original_ptr}}}
+
+    def set_editor(self, editor: Any, pid: int) -> None:
+        """Set the memory editor and process ID."""
+        self.editor = editor
+        self.pid = pid
+
+    def _read_ptr(self, address: int) -> Optional[int]:
+        """Read a pointer from memory (32-bit)."""
+        data = self._read_mem(address, 4)
+        if data and len(data) == 4:
+            return struct.unpack('<I', data)[0]
+        return None
+
+    def _write_ptr(self, address: int, ptr: int) -> bool:
+        """Write a pointer to memory."""
+        data = struct.pack('<I', ptr)
+        return self._write_mem(address, data)
+
+    def _get_module_base(self, module_name: str) -> Optional[int]:
+        """Get module base address."""
+        if not self.pid:
+            return None
+        try:
+            import psutil
+            process = psutil.Process(self.pid)
+            for mmap in process.memory_maps(grouped=False):
+                path_lower = mmap.path.lower() if mmap.path else ''
+                if module_name.lower() in path_lower:
+                    return int(mmap.addr.split('-')[0], 16) if isinstance(mmap.addr, str) else mmap.addr
+        except Exception as e:
+            logger.error("Failed to get module base for %s: %s", module_name, e)
+        return None
+
+    def hook(self, module_name: str, dll_name: str, function_name: str, hook_func_ptr: int) -> bool:
+        """
+        Hook an imported function in a module's IAT.
+
+        Args:
+            module_name: The module whose IAT will be modified (e.g., 'napoleon.exe')
+            dll_name: The DLL containing the function (e.g., 'kernel32.dll')
+            function_name: The function to hook (e.g., 'ReadFile')
+            hook_func_ptr: Function pointer to the hook function
+
+        Returns:
+            bool: True if hooked successfully
+        """
+        if not self.editor:
+            logger.error("No editor set for IAT hook")
+            return False
+
+        base_addr = self._get_module_base(module_name)
+        if not base_addr:
+            logger.error("Module %s not found", module_name)
+            return False
+
+        # Parse PE header (DOS header -> NT headers -> Optional header -> Data Directories)
+        # DOS Header is at base_addr. e_lfanew is at base_addr + 0x3C (4 bytes)
+        e_lfanew_data = self._read_mem(base_addr + 0x3C, 4)
+        if not e_lfanew_data:
+            return False
+        e_lfanew = struct.unpack('<I', e_lfanew_data)[0]
+
+        nt_headers_addr = base_addr + e_lfanew
+        # Check PE signature
+        pe_sig = self._read_mem(nt_headers_addr, 4)
+        if pe_sig != b'PE\x00\x00':
+            logger.error("Invalid PE signature at 0x%08X", nt_headers_addr)
+            return False
+
+        # Import Directory is at OptionalHeader + 96 (DataDirectory[1]) in 32-bit PE
+        import_dir_addr = nt_headers_addr + 24 + 96 + 8 # +8 because it's the second entry (index 1)
+        import_dir_data = self._read_mem(import_dir_addr, 8)
+        if not import_dir_data:
+            return False
+
+        import_dir_rva, import_dir_size = struct.unpack('<II', import_dir_data)
+        if import_dir_rva == 0:
+            logger.error("No Import Directory found in %s", module_name)
+            return False
+
+        current_desc_addr = base_addr + import_dir_rva
+
+        # Iterate through IMAGE_IMPORT_DESCRIPTORs
+        while True:
+            desc_data = self._read_mem(current_desc_addr, 20)
+            if not desc_data:
+                break
+
+            original_first_thunk, time_date_stamp, forwarder_chain, name_rva, first_thunk = struct.unpack('<IIIII', desc_data)
+
+            # End of array is indicated by an empty descriptor
+            if original_first_thunk == 0 and name_rva == 0 and first_thunk == 0:
+                break
+
+            # Read DLL name
+            name_addr = base_addr + name_rva
+            name_bytes = bytearray()
+            while True:
+                char = self._read_mem(name_addr, 1)
+                if not char or char == b'\x00':
+                    break
+                name_bytes.extend(char)
+                name_addr += 1
+
+            current_dll_name = name_bytes.decode('ascii', errors='ignore')
+
+            if current_dll_name.lower() == dll_name.lower():
+                # Found the target DLL, now find the function
+                thunk_addr = base_addr + (original_first_thunk if original_first_thunk != 0 else first_thunk)
+                iat_addr = base_addr + first_thunk
+
+                while True:
+                    thunk_data = self._read_mem(thunk_addr, 4)
+                    if not thunk_data:
+                        break
+                    thunk_val = struct.unpack('<I', thunk_data)[0]
+
+                    if thunk_val == 0:
+                        break
+
+                    # Check if it's imported by ordinal
+                    if thunk_val & 0x80000000 == 0:
+                        # Imported by name
+                        import_by_name_addr = base_addr + thunk_val
+                        # Skip Hint (2 bytes)
+                        func_name_addr = import_by_name_addr + 2
+
+                        func_name_bytes = bytearray()
+                        while True:
+                            char = self._read_mem(func_name_addr, 1)
+                            if not char or char == b'\x00':
+                                break
+                            func_name_bytes.extend(char)
+                            func_name_addr += 1
+
+                        current_func_name = func_name_bytes.decode('ascii', errors='ignore')
+
+                        if current_func_name == function_name:
+                            # Found the function in the IAT
+                            original_ptr = self._read_ptr(iat_addr)
+                            if original_ptr:
+                                # Save original
+                                if module_name not in self._hooks:
+                                    self._hooks[module_name] = {}
+                                if dll_name not in self._hooks[module_name]:
+                                    self._hooks[module_name][dll_name] = {}
+
+                                if function_name not in self._hooks[module_name][dll_name]:
+                                    self._hooks[module_name][dll_name][function_name] = original_ptr
+
+                                # Write hook
+                                if self._write_ptr(iat_addr, hook_func_ptr):
+                                    logger.info("IAT Hook installed: %s!%s in %s. Replaced 0x%08X with 0x%08X",
+                                                dll_name, function_name, module_name, original_ptr, hook_func_ptr)
+                                    return True
+                                else:
+                                    logger.error("Failed to write to IAT at 0x%08X", iat_addr)
+                            break
+
+                    thunk_addr += 4
+                    iat_addr += 4
+
+                break # Finished searching this DLL
+
+            current_desc_addr += 20
+
+        logger.error("Could not find %s!%s in %s's IAT", dll_name, function_name, module_name)
+        return False
+
+    def unhook(self, module_name: str, dll_name: str, function_name: str) -> bool:
+        """
+        Unhook an imported function by restoring its original pointer in the IAT.
+        """
+        if not self.editor:
+            return False
+
+        if module_name not in self._hooks or \
+           dll_name not in self._hooks[module_name] or \
+           function_name not in self._hooks[module_name][dll_name]:
+            logger.warning("No IAT hook found for %s!%s in %s", dll_name, function_name, module_name)
+            return False
+
+        base_addr = self._get_module_base(module_name)
+        if not base_addr:
+            return False
+
+        original_ptr = self._hooks[module_name][dll_name][function_name]
+
+        # Repeat the PE parsing to find the exact IAT address again
+        # This could be optimized by saving the iat_addr during hooking
+
+        e_lfanew_data = self._read_mem(base_addr + 0x3C, 4)
+        if not e_lfanew_data:
+            return False
+        e_lfanew = struct.unpack('<I', e_lfanew_data)[0]
+        nt_headers_addr = base_addr + e_lfanew
+        import_dir_addr = nt_headers_addr + 24 + 96 + 8
+        import_dir_data = self._read_mem(import_dir_addr, 8)
+        if not import_dir_data:
+            return False
+        import_dir_rva, import_dir_size = struct.unpack('<II', import_dir_data)
+        current_desc_addr = base_addr + import_dir_rva
+
+        while True:
+            desc_data = self._read_mem(current_desc_addr, 20)
+            if not desc_data:
+                break
+            original_first_thunk, time_date_stamp, forwarder_chain, name_rva, first_thunk = struct.unpack('<IIIII', desc_data)
+            if original_first_thunk == 0 and name_rva == 0 and first_thunk == 0:
+                break
+
+            name_addr = base_addr + name_rva
+            name_bytes = bytearray()
+            while True:
+                char = self._read_mem(name_addr, 1)
+                if not char or char == b'\x00':
+                    break
+                name_bytes.extend(char)
+                name_addr += 1
+            current_dll_name = name_bytes.decode('ascii', errors='ignore')
+
+            if current_dll_name.lower() == dll_name.lower():
+                thunk_addr = base_addr + (original_first_thunk if original_first_thunk != 0 else first_thunk)
+                iat_addr = base_addr + first_thunk
+
+                while True:
+                    thunk_data = self._read_mem(thunk_addr, 4)
+                    if not thunk_data:
+                        break
+                    thunk_val = struct.unpack('<I', thunk_data)[0]
+                    if thunk_val == 0:
+                        break
+
+                    if thunk_val & 0x80000000 == 0:
+                        import_by_name_addr = base_addr + thunk_val
+                        func_name_addr = import_by_name_addr + 2
+                        func_name_bytes = bytearray()
+                        while True:
+                            char = self._read_mem(func_name_addr, 1)
+                            if not char or char == b'\x00':
+                                break
+                            func_name_bytes.extend(char)
+                            func_name_addr += 1
+                        current_func_name = func_name_bytes.decode('ascii', errors='ignore')
+
+                        if current_func_name == function_name:
+                            # Restore
+                            if self._write_ptr(iat_addr, original_ptr):
+                                del self._hooks[module_name][dll_name][function_name]
+                                if not self._hooks[module_name][dll_name]:
+                                    del self._hooks[module_name][dll_name]
+                                if not self._hooks[module_name]:
+                                    del self._hooks[module_name]
+                                logger.info("IAT Hook removed: %s!%s in %s. Restored 0x%08X", dll_name, function_name, module_name, original_ptr)
+                                return True
+                            break
+                    thunk_addr += 4
+                    iat_addr += 4
+                break
+            current_desc_addr += 20
+
+        return False
+
+    def unhook_all(self) -> None:
+        """Unhook all active IAT hooks."""
+        for module_name, dlls in list(self._hooks.items()):
+            for dll_name, funcs in list(dlls.items()):
+                for function_name in list(funcs.keys()):
+                    self.unhook(module_name, dll_name, function_name)
+
+
+# ============================================================================
 # Chunk-Based Memory Scanner
 # ============================================================================
 

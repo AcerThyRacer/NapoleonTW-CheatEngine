@@ -39,6 +39,8 @@ __all__ = [
     'AOBScanner',
     'AOBPattern',
     'ChunkedScanner',
+    'VMTHooker',
+    'IATHooker',
     'SignatureDatabase',
     'SignatureEntry',
     'ChainEntry',
