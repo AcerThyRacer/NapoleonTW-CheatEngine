@@ -66,6 +66,8 @@ class TestMemoryScanner:
                 self._region = {'address': 0x1000, 'size': 12}
                 self._data = struct.pack('<iii', 42, 7, 42)
 
+            def get_prioritized_regions(self):
+                return self.get_readable_regions()
             def get_readable_regions(self):
                 return [self._region]
 
@@ -200,6 +202,8 @@ class TestMemoryBackend:
             def write_bytes(self, address: int, data: bytes) -> bool:
                 return False
 
+            def get_prioritized_regions(self):
+                return self.get_readable_regions()
             def get_readable_regions(self):
                 raise AssertionError("search_bytes should use supplied regions")
 
@@ -267,6 +271,6 @@ class TestMemoryBackend:
             regions = backend.get_readable_regions()
 
         assert regions == [
-            {'address': 0x00400000, 'size': 0x52000},
-            {'address': 0x00653000, 'size': 0x1000},
+            {'address': 0x00400000, 'size': 0x52000, 'name': '/bin/cat'},
+            {'address': 0x00653000, 'size': 0x1000, 'name': '/bin/cat'},
         ]

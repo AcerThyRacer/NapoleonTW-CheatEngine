@@ -1077,7 +1077,7 @@ class CheatManager:
         else:
             self._aob_scanner.set_editor(self.memory_scanner.backend)
 
-        regions = self.memory_scanner.backend.get_readable_regions()
+        regions = self.memory_scanner.backend.get_prioritized_regions()
         if not regions:
             return {}
 
