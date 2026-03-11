@@ -1411,7 +1411,7 @@ class LuaInjector(_BackendMixin):
         pcall_addr: int,
         source_addr: int,
         source_len: int,
-    ) -> bytes:
+    ) -> Tuple[bytes, int, int]:
         """
         Build x86 (32-bit) shellcode that calls:
 
@@ -1516,7 +1516,7 @@ class LuaInjector(_BackendMixin):
 
         # Patch: the chunk_name push is at chunk_name_push_offset+1 (skip 0x68 opcode)
         # We'll return (code_bytes, fixup_offset, chunk_name_relative_offset)
-        return code, chunk_name_push_offset + 1, chunk_name_offset  # type: ignore[return-value]
+        return code, chunk_name_push_offset + 1, chunk_name_offset
 
     # ------------------------------------------------------------------
     # Injection
@@ -1635,7 +1635,7 @@ class LuaInjector(_BackendMixin):
                 run_start = None
                 run_length = 0
                 for idx, byte in enumerate(data):
-                    if byte in (0x00, 0xCC):
+                    if byte in (0x00, 0xCC):  # 0xCC = INT3 padding
                         if run_start is None:
                             run_start = idx
                         run_length += 1

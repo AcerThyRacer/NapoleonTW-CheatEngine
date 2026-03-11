@@ -634,10 +634,11 @@ class TestLuaInjector:
         import threading
 
         call_order = []
-        original_do_execute = LuaInjector._do_execute
+        entered = threading.Event()
 
         def slow_do_execute(self_inj, source_bytes, lua_source):
             call_order.append(('start', lua_source))
+            entered.set()  # signal that we're inside _do_execute
             import time
             time.sleep(0.05)
             call_order.append(('end', lua_source))
@@ -657,7 +658,8 @@ class TestLuaInjector:
             t1 = threading.Thread(target=inj.execute, args=("script_a",))
             t2 = threading.Thread(target=inj.execute, args=("script_b",))
             t1.start()
-            time.sleep(0.01)  # small delay so t1 grabs lock first
+            entered.wait(timeout=5)  # wait until t1 holds the lock
+            entered.clear()
             t2.start()
             t1.join(timeout=5)
             t2.join(timeout=5)
