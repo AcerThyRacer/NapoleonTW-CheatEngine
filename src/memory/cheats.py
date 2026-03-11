@@ -129,6 +129,7 @@ class HookInfo:
     payload_builder: Callable[[int], bytes]
     priority: int = 50
     active: bool = True
+    install_order: int = 0
 
 class HookManager:
     """Manages chains of hooks at specific memory addresses.
@@ -148,6 +149,7 @@ class HookManager:
         self.active_patches: Dict[int, List[MemoryPatch]] = {}
         # Mapping from site address to its trampoline address
         self.trampolines: Dict[int, int] = {}
+        self._next_install_order: int = 0
 
     def add_hook(self, address: int, hook_id: str, payload_builder: Callable[[int], bytes], overwrite_size: int, priority: int = 50) -> bool:
         """Add a hook to an address. If the address is already hooked, it will be chained.
@@ -168,7 +170,22 @@ class HookManager:
         # Remove existing hook with same ID if it exists
         self.hooks[address] = [h for h in self.hooks[address] if h.hook_id != hook_id]
 
-        self.hooks[address].append(HookInfo(hook_id=hook_id, payload_builder=payload_builder, priority=priority))
+        new_hook = HookInfo(
+            hook_id=hook_id,
+            payload_builder=payload_builder,
+            priority=priority,
+            install_order=self._next_install_order
+        )
+        self._next_install_order += 1
+        self.hooks[address].append(new_hook)
+
+        if len(self.hooks[address]) > 1:
+            logger.warning(f"Conflict detected: Multiple hooks target address 0x{address:X}.")
+            logger.warning("Consider adjusting priorities if they conflict.")
+            # Log installation order and priorities
+            for h in sorted(self.hooks[address], key=lambda x: x.install_order):
+                logger.warning(f"  Hook '{h.hook_id}' - Priority: {h.priority}, Install Order: {h.install_order}")
+
         # Sort by priority (higher priority first)
         self.hooks[address].sort(key=lambda x: x.priority, reverse=True)
 
@@ -254,30 +271,67 @@ class HookManager:
             return True
         return False
 
-    def validate_hooks(self) -> List[int]:
+    def validate_hooks(self, repair: bool = True) -> Dict[int, str]:
         """Validate all active hooks to check if they have been overwritten.
 
-        Returns a list of addresses that were auto-restored.
+        Args:
+            repair: If True, attempts to auto-restore overwritten hooks.
+
+        Returns a dict of addresses mapped to their status (e.g. 'restored', 'corrupted', 'ok').
         """
-        restored_addresses = []
+        hook_status = {}
         if not self.backend:
-            return restored_addresses
+            return hook_status
 
         for address, patches in self.active_patches.items():
             if not patches:
                 continue
 
-            # The last patch in the list is usually the site patch (the jump)
-            site_patch = next((p for p in patches if p.address == address), None)
-            if site_patch:
-                current_bytes = self.backend.read_bytes(address, len(site_patch.patched_bytes))
-                if current_bytes != site_patch.patched_bytes:
-                    logger.warning(f"Hook at 0x{address:X} was overwritten! Auto-restoring...")
+            status = 'ok'
+            corrupted = False
+
+            # Check trampoline and code caves
+            for patch in patches:
+                current_bytes = self.backend.read_bytes(patch.address, len(patch.patched_bytes))
+                if current_bytes != patch.patched_bytes:
+                    corrupted = True
+                    break
+
+            # Also check trampoline if it exists
+            if not corrupted and address in self.trampolines:
+                trampoline_addr = self.trampolines[address]
+                overwrite_size = len(self.original_bytes[address])
+                trampoline_size = overwrite_size + 5
+                current_trampoline = self.backend.read_bytes(trampoline_addr, trampoline_size)
+                # Ensure the original instruction matches the first part
+                # and the jump matches the second part
+                if current_trampoline is None or len(current_trampoline) != trampoline_size:
+                    corrupted = True
+                else:
+                    # Validate jump back instruction
+                    expected_jump = CodeCaveInjector.build_relative_jump(
+                        trampoline_addr + overwrite_size,
+                        address + overwrite_size,
+                    )
+                    expected_trampoline = self.original_bytes[address] + expected_jump
+                    if current_trampoline != expected_trampoline:
+                        corrupted = True
+
+            if corrupted:
+                logger.warning(f"Hook or trampoline at 0x{address:X} was corrupted!")
+                if repair:
+                    logger.info(f"Auto-restoring hook at 0x{address:X}...")
                     overwrite_size = len(self.original_bytes[address])
                     if self._apply_hooks(address, overwrite_size):
-                        restored_addresses.append(address)
+                        status = 'restored'
+                    else:
+                        status = 'corrupted'
+                else:
+                    status = 'corrupted'
 
-        return restored_addresses
+            hook_status[address] = status
+
+        return hook_status
 
 class CodeCaveInjector:
     """Minimal code-cave injector for complex instruction redirection cheats."""
@@ -426,12 +480,40 @@ class CheatManager:
         self._healing_in_progress = set()
         self.hook_manager = HookManager(self.memory_scanner.backend)
 
+        self._validation_thread = None
+        self._stop_validation = threading.Event()
+
         self._load_signatures()
         self.cheat_definitions = self._init_cheat_definitions()
 
         # Wire up the freezer healing callback if scanner is ready
         if hasattr(self.memory_scanner, '_freezer') and self.memory_scanner._freezer:
             self.memory_scanner._freezer.set_callbacks(on_error=self._on_freeze_error)
+
+        self.start_validation_thread()
+
+    def start_validation_thread(self):
+        """Starts a background thread to continuously validate and auto-restore hooks."""
+        if self._validation_thread and self._validation_thread.is_alive():
+            return
+
+        self._stop_validation.clear()
+        self._validation_thread = threading.Thread(target=self._validation_loop, daemon=True)
+        self._validation_thread.start()
+
+    def stop_validation_thread(self):
+        """Stops the background validation thread."""
+        self._stop_validation.set()
+        if self._validation_thread:
+            self._validation_thread.join(timeout=2.0)
+            self._validation_thread = None
+
+    def _validation_loop(self):
+        import time
+        while not self._stop_validation.is_set():
+            if self.memory_scanner.is_attached():
+                self.validate_hooks(repair=True)
+            time.sleep(5.0)
 
     def _on_freeze_error(self, address: int, error_msg: str) -> None:
         """Called when the memory freezer repeatedly fails to write to an address."""
@@ -484,13 +566,15 @@ class CheatManager:
 
         return success
 
-    def validate_hooks(self) -> None:
+    def validate_hooks(self, repair: bool = True) -> Dict[int, str]:
         """Periodic validation of active hooks. This should be called from the main loop."""
         if self.hook_manager:
-            restored = self.hook_manager.validate_hooks()
-            if restored:
-                for addr in restored:
+            status = self.hook_manager.validate_hooks(repair=repair)
+            for addr, s in status.items():
+                if s == 'restored':
                     logger.warning(f"Hook at 0x{addr:X} auto-restored.")
+            return status
+        return {}
 
     def _load_signatures(self) -> None:
         """Load the JSON-backed pointer-chain and AOB signature database."""
