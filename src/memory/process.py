@@ -7,12 +7,137 @@ import psutil
 from typing import Optional, List
 from pathlib import Path
 
+import asyncio
+import logging
+import os
+import struct
+import time
+from typing import Tuple
+
 from src.utils import (
     get_platform,
     get_all_possible_process_names,
     get_process_name,
     is_proton,
 )
+
+logger = logging.getLogger(__name__)
+
+
+class SmartPointer:
+    """
+    Robust Multi-Level Pointer resolver.
+    Safely reads memory across pointer chains, validates memory regions
+    via /proc/<pid>/maps, and asynchronously caches results.
+    """
+    def __init__(self, pid: int, base_address: int, offsets: List[int], cache_ttl: float = 1.0):
+        self.pid = pid
+        self.base_address = base_address
+        self.offsets = offsets
+        self.cache_ttl = cache_ttl
+
+        self._cached_address: Optional[int] = None
+        self._last_update: float = 0.0
+        self._lock = asyncio.Lock()
+
+        self._valid_regions: List[Tuple[int, int]] = []
+        self._regions_last_update: float = 0.0
+
+    def _update_memory_maps(self) -> None:
+        """Update the cached memory regions from /proc/pid/maps."""
+        now = time.time()
+        # Cache memory maps for 5 seconds to avoid expensive reads every check
+        if now - self._regions_last_update < 5.0 and self._valid_regions:
+            return
+
+        regions = []
+        try:
+            maps_path = f"/proc/{self.pid}/maps"
+            if not os.path.exists(maps_path):
+                return
+
+            with open(maps_path, "r") as f:
+                for line in f:
+                    parts = line.split()
+                    if len(parts) < 2 or 'r' not in parts[1]:
+                        continue
+                    addr_range = parts[0].split('-')
+                    if len(addr_range) == 2:
+                        try:
+                            start = int(addr_range[0], 16)
+                            end = int(addr_range[1], 16)
+                            regions.append((start, end))
+                        except ValueError:
+                            pass
+            self._valid_regions = regions
+            self._regions_last_update = now
+        except Exception as e:
+            logger.debug("Failed to read memory maps for PID %d: %s", self.pid, e)
+
+    def _is_valid_address(self, address: int) -> bool:
+        """Check if an address is not null and within a valid readable memory region."""
+        if address == 0:
+            return False
+
+        self._update_memory_maps()
+
+        # If we couldn't load regions (e.g., on Windows or access denied), allow it optimistically
+        if not self._valid_regions:
+            return True
+
+        for start, end in self._valid_regions:
+            if start <= address < end:
+                return True
+
+        return False
+
+    async def resolve(self) -> Optional[int]:
+        """
+        Asynchronously resolve the pointer chain.
+        Caches the result to avoid re-reading every frame.
+        """
+        async with self._lock:
+            now = time.time()
+            if self._cached_address is not None and (now - self._last_update) < self.cache_ttl:
+                return self._cached_address
+
+            current_addr = self.base_address
+
+            try:
+                mem_path = f"/proc/{self.pid}/mem"
+                # Fallback check if mem path doesn't exist (not on Linux)
+                if not os.path.exists(mem_path):
+                    logger.debug("mem path %s not found (not on Linux?)", mem_path)
+                    return None
+
+                fd = os.open(mem_path, os.O_RDONLY)
+                try:
+                    for i, offset in enumerate(self.offsets):
+                        if not self._is_valid_address(current_addr):
+                            logger.debug("Invalid memory address at step %d: 0x%08X", i, current_addr)
+                            return None
+
+                        os.lseek(fd, current_addr, os.SEEK_SET)
+                        ptr_data = os.read(fd, 4)
+                        if len(ptr_data) < 4:
+                            logger.debug("Failed to read 4 bytes at 0x%08X", current_addr)
+                            return None
+
+                        # Napoleon Total War is a 32-bit process, pointers are 4 bytes
+                        current_addr = struct.unpack('<I', ptr_data)[0] + offset
+
+                    if not self._is_valid_address(current_addr):
+                        logger.debug("Resolved final address is invalid: 0x%08X", current_addr)
+                        return None
+
+                    self._cached_address = current_addr
+                    self._last_update = time.time()
+                    return current_addr
+                finally:
+                    os.close(fd)
+            except Exception as e:
+                logger.debug("Exception during pointer resolution: %s", e)
+                return None
 
 
 class ProcessManager:
