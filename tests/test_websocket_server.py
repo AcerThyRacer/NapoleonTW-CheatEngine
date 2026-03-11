@@ -8,18 +8,99 @@ cheat commands, themes, and preset functionality.
 import asyncio
 import json
 import time
+from typing import Dict, List, Any
 import pytest
 
 from src.server.websocket_server import (
     NapoleonWebServer,
     ServerState,
     create_app,
-    CHEAT_COMMANDS,
     THEMES,
     CATEGORY_META,
     CheatCategory,
-    CheatCommand,
 )
+from src.server.engine_service import EngineService
+
+# Helper static list matching the mock engine setup
+MOCK_CHEAT_COMMANDS = [
+    {
+        "id": "infinite_gold",
+        "name": "Imperial Treasury",
+        "description": "Fill the imperial coffers with unlimited gold",
+        "category": "treasury",
+        "icon": "⚙️",
+        "default_value": 999999,
+        "min_value": 0,
+        "max_value": 999999,
+        "is_toggle": True,
+        "is_slider": False
+    },
+    {
+        "id": "god_mode",
+        "name": "Divine Protection",
+        "description": "Your armies are invincible in battle",
+        "category": "battle",
+        "icon": "⚙️",
+        "default_value": 1,
+        "min_value": 0,
+        "max_value": 999999,
+        "is_toggle": True,
+        "is_slider": False
+    },
+    {
+        "id": "super_speed",
+        "name": "Napoleonic Blitz",
+        "description": "Accelerate time on the battlefield",
+        "category": "battle",
+        "icon": "⚙️",
+        "default_value": 5,
+        "min_value": 0,
+        "max_value": 999999,
+        "is_toggle": True,
+        "is_slider": True
+    }
+]
+
+class MockEngineService(EngineService):
+    def __init__(self):
+        super().__init__()
+        self._attached = True
+        self._states: Dict[str, bool] = {cmd["id"]: False for cmd in MOCK_CHEAT_COMMANDS}
+        self.history: List[Dict[str, Any]] = []
+
+    def get_cheat_catalog(self) -> List[Dict[str, Any]]:
+        return MOCK_CHEAT_COMMANDS
+
+    def is_attached(self) -> bool:
+        return self._attached
+
+    def toggle_cheat(self, cheat_id: str, enabled: bool) -> bool:
+        if not self._attached:
+            return False
+        if cheat_id in self._states:
+            self._states[cheat_id] = enabled
+            self.history.append({"cheat_id": cheat_id, "enabled": enabled})
+            return True
+        return False
+
+    def activate_all(self) -> None:
+        if not self._attached:
+            return
+        for k in self._states:
+            self._states[k] = True
+
+    def deactivate_all(self) -> None:
+        for k in self._states:
+            self._states[k] = False
+
+    def get_cheat_status(self, cheat_id: str) -> bool:
+        return self._states.get(cheat_id, False)
+
+    def get_all_cheat_states(self) -> Dict[str, bool]:
+        return dict(self._states)
+
+    def get_resource_history(self) -> List[Dict[str, Any]]:
+        return self.history
 
 
 # ---------------------------------------------------------------------------
@@ -30,10 +111,14 @@ from src.server.websocket_server import (
 def state():
     return ServerState()
 
+@pytest.fixture
+def engine_service():
+    return MockEngineService()
+
 
 @pytest.fixture
-def server(state):
-    return NapoleonWebServer(state=state)
+def server(state, engine_service):
+    return NapoleonWebServer(state=state, engine_service=engine_service)
 
 
 # ---------------------------------------------------------------------------
@@ -41,51 +126,33 @@ def server(state):
 # ---------------------------------------------------------------------------
 
 class TestCheatCommands:
-    """Tests for the cheat command definitions."""
+    """Tests for the cheat command definitions provided by engine."""
 
-    def test_all_commands_have_ids(self):
-        for cmd in CHEAT_COMMANDS:
-            assert cmd.id, f"Command missing id: {cmd}"
+    def test_all_commands_have_ids(self, server):
+        for cmd in server.engine_service.get_cheat_catalog():
+            assert cmd["id"], f"Command missing id: {cmd}"
 
-    def test_all_commands_have_names(self):
-        for cmd in CHEAT_COMMANDS:
-            assert cmd.name, f"Command missing name: {cmd}"
+    def test_all_commands_have_names(self, server):
+        for cmd in server.engine_service.get_cheat_catalog():
+            assert cmd["name"], f"Command missing name: {cmd}"
 
-    def test_all_commands_have_categories(self):
+    def test_all_commands_have_categories(self, server):
         valid = {c.value for c in CheatCategory}
-        for cmd in CHEAT_COMMANDS:
-            assert cmd.category in valid, f"Invalid category for {cmd.id}: {cmd.category}"
+        for cmd in server.engine_service.get_cheat_catalog():
+            assert cmd["category"] in valid, f"Invalid category for {cmd['id']}: {cmd['category']}"
 
-    def test_command_count_matches_napoleon_panel(self):
-        # napoleon_panel.py defines 12 cheat commands
-        assert len(CHEAT_COMMANDS) == 12
+    def test_command_count_matches_engine(self, server):
+        assert len(server.engine_service.get_cheat_catalog()) == len(MOCK_CHEAT_COMMANDS)
 
-    def test_slider_cheat_has_range(self):
-        slider_cheats = [c for c in CHEAT_COMMANDS if c.is_slider]
+    def test_slider_cheat_has_range(self, server):
+        slider_cheats = [c for c in server.engine_service.get_cheat_catalog() if c.get("is_slider")]
         assert len(slider_cheats) >= 1
         for cmd in slider_cheats:
-            assert cmd.min_value < cmd.max_value
+            assert cmd["min_value"] < cmd["max_value"]
 
-    def test_to_dict(self):
-        cmd = CHEAT_COMMANDS[0]
-        d = cmd.to_dict()
-        assert d["id"] == cmd.id
-        assert d["name"] == cmd.name
-        assert "category" in d
-
-    def test_unique_ids(self):
-        ids = [c.id for c in CHEAT_COMMANDS]
+    def test_unique_ids(self, server):
+        ids = [c["id"] for c in server.engine_service.get_cheat_catalog()]
         assert len(ids) == len(set(ids)), "Duplicate cheat IDs found"
-
-    def test_command_ids_match_napoleon_panel(self):
-        expected_ids = {
-            "infinite_gold", "instant_recruitment", "instant_construction",
-            "fast_research", "unlimited_movement", "god_mode",
-            "unlimited_ammo", "high_morale", "one_hit_kill",
-            "super_speed", "max_agents", "free_diplomacy",
-        }
-        actual_ids = {c.id for c in CHEAT_COMMANDS}
-        assert actual_ids == expected_ids
 
 
 class TestCategoryMeta:
@@ -130,29 +197,29 @@ class TestThemes:
 class TestServerState:
     """Tests for ServerState."""
 
-    def test_initial_state(self, state):
-        assert state.active_count() == 0
-        assert state.current_theme == "napoleon_gold"
-        assert len(state.cheat_states) == len(CHEAT_COMMANDS)
-        assert all(v is False for v in state.cheat_states.values())
+    def test_initial_state(self, server):
+        assert server.active_count() == 0
+        assert server.state.current_theme == "napoleon_gold"
+        assert len(server.get_cheat_states()) == len(MOCK_CHEAT_COMMANDS)
+        assert all(v is False for v in server.get_cheat_states().values())
 
-    def test_active_count(self, state):
-        state.cheat_states["infinite_gold"] = True
-        assert state.active_count() == 1
+    def test_active_count(self, server):
+        server.engine_service.toggle_cheat("infinite_gold", True)
+        assert server.active_count() == 1
 
-    def test_snapshot(self, state):
-        snap = state.snapshot()
+    def test_snapshot(self, server):
+        snap = server.snapshot()
         assert snap["type"] == "state_snapshot"
-        assert len(snap["cheats"]) == 12
+        assert len(snap["cheats"]) == len(MOCK_CHEAT_COMMANDS)
         assert "cheat_states" in snap
         assert "themes" in snap
         assert "categories" in snap
         assert snap["active_count"] == 0
 
-    def test_snapshot_reflects_state(self, state):
-        state.cheat_states["god_mode"] = True
-        state.current_theme = "imperial_blue"
-        snap = state.snapshot()
+    def test_snapshot_reflects_state(self, server):
+        server.engine_service.toggle_cheat("god_mode", True)
+        server.state.current_theme = "imperial_blue"
+        snap = server.snapshot()
         assert snap["active_count"] == 1
         assert snap["current_theme"] == "imperial_blue"
 
@@ -168,7 +235,7 @@ class TestMessageHandlers:
     async def test_get_state(self, server):
         reply = await server.handle_message('{"type": "get_state"}')
         assert reply["type"] == "state_snapshot"
-        assert len(reply["cheats"]) == 12
+        assert len(reply["cheats"]) == len(MOCK_CHEAT_COMMANDS)
 
     @pytest.mark.asyncio
     async def test_toggle_cheat_on(self, server):
@@ -178,15 +245,23 @@ class TestMessageHandlers:
         assert reply["cheat_id"] == "infinite_gold"
         assert reply["enabled"] is True
         assert reply["active_count"] == 1
-        assert server.state.cheat_states["infinite_gold"] is True
+        assert server.engine_service.get_cheat_status("infinite_gold") is True
 
     @pytest.mark.asyncio
     async def test_toggle_cheat_off(self, server):
-        server.state.cheat_states["god_mode"] = True
+        server.engine_service.toggle_cheat("god_mode", True)
         msg = json.dumps({"type": "toggle_cheat", "cheat_id": "god_mode", "enabled": False})
         reply = await server.handle_message(msg)
         assert reply["enabled"] is False
-        assert server.state.cheat_states["god_mode"] is False
+        assert server.engine_service.get_cheat_status("god_mode") is False
+
+    @pytest.mark.asyncio
+    async def test_toggle_cheat_unattached(self, server):
+        server.engine_service._attached = False
+        msg = json.dumps({"type": "toggle_cheat", "cheat_id": "infinite_gold", "enabled": True})
+        reply = await server.handle_message(msg)
+        assert reply["type"] == "error"
+        assert "Engine not attached" in reply["message"]
 
     @pytest.mark.asyncio
     async def test_toggle_unknown_cheat(self, server):
@@ -199,17 +274,17 @@ class TestMessageHandlers:
     async def test_activate_all(self, server):
         reply = await server.handle_message('{"type": "activate_all"}')
         assert reply["type"] == "all_activated"
-        assert reply["active_count"] == 12
-        assert all(v is True for v in server.state.cheat_states.values())
+        assert reply["active_count"] == len(MOCK_CHEAT_COMMANDS)
+        assert all(v is True for v in server.get_cheat_states().values())
 
     @pytest.mark.asyncio
     async def test_deactivate_all(self, server):
         # First activate some
-        server.state.cheat_states["god_mode"] = True
+        server.engine_service.toggle_cheat("god_mode", True)
         reply = await server.handle_message('{"type": "deactivate_all"}')
         assert reply["type"] == "all_deactivated"
         assert reply["active_count"] == 0
-        assert all(v is False for v in server.state.cheat_states.values())
+        assert all(v is False for v in server.get_cheat_states().values())
 
     @pytest.mark.asyncio
     async def test_set_theme(self, server):
@@ -228,7 +303,7 @@ class TestMessageHandlers:
 
     @pytest.mark.asyncio
     async def test_save_preset(self, server):
-        server.state.cheat_states["god_mode"] = True
+        server.engine_service.toggle_cheat("god_mode", True)
         msg = json.dumps({"type": "save_preset", "name": "Test Preset"})
         reply = await server.handle_message(msg)
         assert reply["type"] == "preset_saved"
@@ -239,14 +314,14 @@ class TestMessageHandlers:
     @pytest.mark.asyncio
     async def test_load_preset(self, server):
         # Save first
-        server.state.cheat_states["god_mode"] = True
+        server.engine_service.toggle_cheat("god_mode", True)
         await server.handle_message(json.dumps({"type": "save_preset", "name": "P1"}))
         # Reset state
-        server.state.cheat_states["god_mode"] = False
+        server.engine_service.toggle_cheat("god_mode", False)
         # Load
         reply = await server.handle_message(json.dumps({"type": "load_preset", "index": 0}))
         assert reply["type"] == "preset_loaded"
-        assert server.state.cheat_states["god_mode"] is True
+        assert server.engine_service.get_cheat_status("god_mode") is True
 
     @pytest.mark.asyncio
     async def test_load_invalid_preset(self, server):
@@ -294,11 +369,11 @@ class TestMessageHandlers:
     async def test_toggle_records_history(self, server):
         msg = json.dumps({"type": "toggle_cheat", "cheat_id": "god_mode", "enabled": True})
         await server.handle_message(msg)
-        assert len(server.state.resource_history) == 1
-        entry = server.state.resource_history[0]
+        history = server.engine_service.get_resource_history()
+        assert len(history) == 1
+        entry = history[0]
         assert entry["cheat_id"] == "god_mode"
         assert entry["enabled"] is True
-        assert "timestamp" in entry
 
 
 # ---------------------------------------------------------------------------
@@ -353,7 +428,7 @@ class TestRestRoutes:
     def test_cheats_route_returns_list(self, server):
         routes = server.get_rest_routes()
         assert isinstance(routes["/api/cheats"], list)
-        assert len(routes["/api/cheats"]) == 12
+        assert len(routes["/api/cheats"]) == len(MOCK_CHEAT_COMMANDS)
 
     def test_themes_route(self, server):
         routes = server.get_rest_routes()
