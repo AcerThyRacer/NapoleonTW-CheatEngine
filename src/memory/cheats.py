@@ -478,7 +478,11 @@ class CheatManager:
         self.saved_cheat_state: List[CheatType] = []
         self._healing_lock = threading.Lock()
         self._healing_in_progress = set()
-        self.hook_manager = HookManager(self.memory_scanner.backend)
+        try:
+            from .ultra_hook import UltraReliableHookManager
+            self.hook_manager = UltraReliableHookManager(self.memory_scanner.backend, self.memory_scanner.process_manager)
+        except ImportError:
+            self.hook_manager = HookManager(self.memory_scanner.backend)
 
         self._validation_thread = None
         self._stop_validation = threading.Event()
