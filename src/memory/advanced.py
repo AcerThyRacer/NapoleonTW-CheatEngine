@@ -309,13 +309,16 @@ class MemoryFreezer(_BackendMixin):
             data = struct.pack(fmt, frozen.value)
             
             # Support both backend (write_bytes) and legacy (write_process_memory)
+            success = False
             if hasattr(self.editor, 'write_bytes'):
                 success = self.editor.write_bytes(frozen.address, data)
-                if not success:
-                    raise RuntimeError("Backend write returned False")
             else:
                 self._write_mem(frozen.address, data)
-            
+                success = True # Assume true for legacy unless it raises
+
+            if not success:
+                raise RuntimeError("write_bytes returned False")
+
             frozen.last_write_time = current_time
             frozen.write_count += 1
             frozen.error_count = 0  # Reset on success

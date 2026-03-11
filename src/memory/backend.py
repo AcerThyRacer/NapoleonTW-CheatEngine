@@ -28,6 +28,48 @@ class MemoryRegion(TypedDict):
     size: int
 
 
+class SafeMemory:
+    """
+    Wrapper around MemoryBackend that provides bulletproof error handling.
+    Prevents the trainer from crashing on access violations or stale pointers.
+    """
+
+    def __init__(self, backend: 'MemoryBackend'):
+        self.backend = backend
+
+    def read_bytes(self, address: int, size: int) -> Optional[bytes]:
+        if not self.backend or not self.backend.is_open:
+            return None
+        if address == 0 or address is None:
+            logger.warning("SafeMemory: Blocked read from null pointer")
+            return None
+        try:
+            data = self.backend.read_bytes(address, size)
+            if not data:
+                logger.debug("SafeMemory: Read returned no data at 0x%08X", address)
+            return data
+        except Exception as e:
+            # Handle STATUS_ACCESS_VIOLATION and other errors gracefully
+            logger.warning("SafeMemory: Read access violation or error at 0x%08X (size %d): %s", address, size, e)
+            return None
+
+    def write_bytes(self, address: int, data: bytes) -> bool:
+        if not self.backend or not self.backend.is_open:
+            return False
+        if address == 0 or address is None:
+            logger.warning("SafeMemory: Blocked write to null pointer")
+            return False
+        try:
+            result = self.backend.write_bytes(address, data)
+            if not result:
+                logger.debug("SafeMemory: Write returned False at 0x%08X", address)
+            return result
+        except Exception as e:
+            # Handle STATUS_ACCESS_VIOLATION and other errors gracefully
+            logger.warning("SafeMemory: Write access violation or error at 0x%08X (size %d): %s", address, len(data), e)
+            return False
+
+
 class MemoryBackend(ABC):
     """Abstract memory access backend."""
     

@@ -15,7 +15,7 @@ import threading
 from pathlib import Path
 
 from .process import ProcessManager
-from .backend import MemoryBackend, MemoryRegion, create_backend
+from .backend import MemoryBackend, MemoryRegion, create_backend, SafeMemory
 
 logger = logging.getLogger('napoleon.memory.scanner')
 
@@ -113,10 +113,13 @@ class MemoryScanner:
         if not self.process_manager.attach():
             return False
         
-        self.backend = create_backend(self.process_manager.pid)
-        if self.backend:
+        raw_backend = create_backend(self.process_manager.pid)
+        if raw_backend:
+            self.backend = raw_backend
+            # Provide the SafeMemory wrapper for code needing fault-tolerance
+            self.safe_memory = SafeMemory(self.backend)
             # Legacy alias so existing code referencing self.editor still works
-            self.editor = self.backend
+            self.editor = self.safe_memory
             logger.info("Attached to PID %d with backend %s",
                         self.process_manager.pid, type(self.backend).__name__)
             return True
@@ -768,7 +771,7 @@ class MemoryScanner:
     
     def read_value(self, address: int, value_type: ValueType = ValueType.INT_32) -> Optional[ScanValue]:
         """
-        Read a value from memory.
+        Read a value from memory using SafeMemory.
         
         Args:
             address: Memory address
@@ -780,20 +783,19 @@ class MemoryScanner:
         if not self.is_attached():
             return None
         
-        if self.backend:
-            try:
-                size = self._get_type_size(value_type)
-                data = self.backend.read_bytes(address, size)
-                if data:
-                    return self._unpack_value(data, value_type)
-            except Exception as e:
-                logger.error("Read error at 0x%08X: %s", address, e)
+        try:
+            size = self._get_type_size(value_type)
+            data = self.safe_memory.read_bytes(address, size)
+            if data:
+                return self._unpack_value(data, value_type)
+        except Exception as e:
+            logger.error("Read value error at 0x%08X: %s", address, e)
         
         return None
     
     def write_value(self, address: int, value: ScanValue, value_type: ValueType = ValueType.INT_32) -> bool:
         """
-        Write a value to memory.
+        Write a value to memory using SafeMemory.
         
         Args:
             address: Memory address
@@ -806,12 +808,11 @@ class MemoryScanner:
         if not self.is_attached():
             return False
         
-        if self.backend:
-            try:
-                value_bytes = self._pack_value(value, value_type)
-                return self.backend.write_bytes(address, value_bytes)
-            except Exception as e:
-                logger.error("Write error at 0x%08X: %s", address, e)
+        try:
+            value_bytes = self._pack_value(value, value_type)
+            return self.safe_memory.write_bytes(address, value_bytes)
+        except Exception as e:
+            logger.error("Write value error at 0x%08X: %s", address, e)
         
         return False
     
@@ -1164,7 +1165,7 @@ class MemoryScanner:
 
     def scan_pointers(self, base_address: int, offsets: List[int]) -> Optional[int]:
         """
-        Follow a pointer chain starting from *base_address*.
+        Follow a pointer chain starting from *base_address* using SafeMemory.
 
         At each level the method reads an 8-byte (64-bit) or 4-byte
         (32-bit) pointer, adds the next offset, and dereferences again
@@ -1183,7 +1184,7 @@ class MemoryScanner:
         address = base_address
         for offset in offsets:
             try:
-                data = self.backend.read_bytes(address, 8)
+                data = self.safe_memory.read_bytes(address, 8)
                 if not data or len(data) < 4:
                     logger.warning("Pointer read failed at 0x%08X", address)
                     return None

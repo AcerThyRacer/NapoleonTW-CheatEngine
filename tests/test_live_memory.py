@@ -423,6 +423,8 @@ class TestScannerNewMethods:
         mock_backend = Mock()
         mock_backend.is_open = True
         scanner.backend = mock_backend
+        from src.memory.backend import SafeMemory
+        scanner.safe_memory = SafeMemory(scanner.backend)
 
         # Simulate: base_address reads ptr=0x5000, then 0x5000+0x10 reads ptr=0x8000
         # Final address = 0x8000 + 0x20 = 0x8020
