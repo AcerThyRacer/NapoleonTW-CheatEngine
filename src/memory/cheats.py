@@ -124,6 +124,7 @@ class MemoryPatch:
 from typing import Callable
 
 @dataclass
+@dataclass
 class HookInfo:
     """Information about a specific hook in a chain."""
     hook_id: str
@@ -484,8 +485,8 @@ class CheatManager:
             self.hook_manager = UltraReliableHookManager(self.memory_scanner.backend, self.memory_scanner.process_manager)
         except ImportError:
             self.hook_manager = HookManager(self.memory_scanner.backend)
-
         self.crash_recovery = CrashRecoveryManager()
+
         self._validation_thread = None
         self._stop_validation = threading.Event()
 

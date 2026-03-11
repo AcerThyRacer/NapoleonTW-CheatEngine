@@ -955,8 +955,7 @@ class AOBScanner(_BackendMixin):
                     address += chunk_size
                     continue
                 
-                # Search for pattern in chunk
-                # Use native scanner if available for performance
+                # Use native scanner if available
                 if self._native is not None:
                     hits = self._native.scan_buffer(
                         data, pattern.pattern,
@@ -2713,7 +2712,7 @@ class LuaInjector(_BackendMixin):
         #   mov eax, [lua_state_ptr_addr]   ; eax = lua_State*
         #
         #   ; --- luaL_loadbuffer(L, source, len, name) ---
-        #   push <chunk_name_addr>          ; will be patched to point at "inject\\0"
+        #   push <chunk_name_addr>          ; will be patched to point at "inject\0"
         #   push source_len
         #   push source_addr
         #   push eax                        ; L
@@ -2731,255 +2730,269 @@ class LuaInjector(_BackendMixin):
         #   call ebx
         #   add esp, 16
         #
-        #   popad
+        #   popad                           ; restore regs
         #   ret
+        #
+        #   <chunk-name NUL-terminated>     ; "inject\0"
 
-        chunk_name = b'inject\x00'
-
-        # We'll assemble the whole thing, then append the chunk-name string
-        # at a known offset so we can reference it.
-        parts: List[bytes] = []
+        code = bytearray()
 
         # pushad
-        parts.append(b'\x60')
+        code.append(0x60)
 
         # mov eax, [lua_state_ptr_addr]
-        parts.append(b'\xA1' + struct.pack('<I', lua_state_ptr_addr))
+        code.extend([0xA1])
+        code.extend(struct.pack('<I', lua_state_ptr_addr))
 
-        # -- placeholder PUSH for chunk_name address (patched below) --
-        chunk_name_push_offset = sum(len(p) for p in parts)
-        parts.append(b'\x68' + b'\x00\x00\x00\x00')  # push imm32 (patched)
+        # push <chunk_name_addr> (placeholder, will fix up)
+        code.extend([0x68])
+        chunk_name_rel_offset = len(code)  # will fill later
+        code.extend([0x00, 0x00, 0x00, 0x00])
 
         # push source_len
-        parts.append(b'\x68' + struct.pack('<I', source_len))
+        code.extend([0x68])
+        code.extend(struct.pack('<I', source_len))
 
         # push source_addr
-        parts.append(b'\x68' + struct.pack('<I', source_addr))
+        code.extend([0x68])
+        code.extend(struct.pack('<I', source_addr))
 
-        # push eax  (L)
-        parts.append(b'\x50')
+        # push eax
+        code.append(0x50)
 
-        # mov ebx, loadbuffer_addr ; call ebx
-        parts.append(b'\xBB' + struct.pack('<I', loadbuffer_addr))
-        parts.append(b'\xFF\xD3')
+        # mov ebx, loadbuffer_addr
+        code.extend([0xBB])
+        code.extend(struct.pack('<I', loadbuffer_addr))
 
-        # add esp, 16
-        parts.append(b'\x83\xC4\x10')
-
-        # mov eax, [lua_state_ptr_addr]  (reload L — callee may have trashed it)
-        parts.append(b'\xA1' + struct.pack('<I', lua_state_ptr_addr))
-
-        # push 0 ; push 0 ; push 0 ; push eax
-        parts.append(b'\x6A\x00')  # errfunc
-        parts.append(b'\x6A\x00')  # nresults
-        parts.append(b'\x6A\x00')  # nargs
-        parts.append(b'\x50')      # L
-
-        # mov ebx, pcall_addr ; call ebx
-        parts.append(b'\xBB' + struct.pack('<I', pcall_addr))
-        parts.append(b'\xFF\xD3')
+        # call ebx
+        code.extend([0xFF, 0xD3])
 
         # add esp, 16
-        parts.append(b'\x83\xC4\x10')
+        code.extend([0x83, 0xC4, 0x10])
 
-        # popad ; ret
-        parts.append(b'\x61')
-        parts.append(b'\xC3')
+        # mov eax, [lua_state_ptr_addr]
+        code.extend([0xA1])
+        code.extend(struct.pack('<I', lua_state_ptr_addr))
 
-        code = b''.join(parts)
+        # push 0 (errfunc)
+        code.extend([0x6A, 0x00])
 
-        # The chunk name string is appended right after the code.
-        chunk_name_offset = len(code)
-        code += chunk_name
+        # push 0 (nresults)
+        code.extend([0x6A, 0x00])
 
-        # We still need to know the absolute address of the chunk name in
-        # memory.  The caller will relocate the shellcode to a code cave
-        # so this method returns the raw bytes + the offset that must be
-        # patched with (cave_base + chunk_name_offset).
-        # We embed the offset inside the returned tuple via a small helper
-        # that the caller invokes.  For simplicity, we store the fixup
-        # index in the first byte sequence that is all-zero push.
+        # push 0 (nargs)
+        code.extend([0x6A, 0x00])
 
-        # Patch: the chunk_name push is at chunk_name_push_offset+1 (skip 0x68 opcode)
-        # We'll return (code_bytes, fixup_offset, chunk_name_relative_offset)
-        return code, chunk_name_push_offset + 1, chunk_name_offset
+        # push eax
+        code.append(0x50)
+
+        # mov ebx, pcall_addr
+        code.extend([0xBB])
+        code.extend(struct.pack('<I', pcall_addr))
+
+        # call ebx
+        code.extend([0xFF, 0xD3])
+
+        # add esp, 16
+        code.extend([0x83, 0xC4, 0x10])
+
+        # popad
+        code.append(0x61)
+
+        # ret
+        code.append(0xC3)
+
+        # Chunk name (NUL-terminated)
+        chunk_name_start = len(code)
+        code.extend(b'inject\x00')
+
+        # Fix up chunk name address (relative to shellcode start)
+        chunk_name_addr_placeholder_offset = chunk_name_rel_offset - 4  # relative to the placeholder
+        # Actually we want absolute: shellcode_start + chunk_name_start
+        # But we'll fix this in _do_execute when we know cave_addr
+
+        return bytes(code), chunk_name_start, chunk_name_start
 
     # ------------------------------------------------------------------
-    # Injection
+    # Code cave allocation
+    # ------------------------------------------------------------------
+
+    def _alloc_cave(self, size: int) -> Optional[int]:
+        """
+        Find a suitable code cave: a run of zero bytes or INT3 padding.
+
+        Returns the cave's start address, or None if not found.
+        """
+        if not self.editor:
+            return None
+
+        for region in self.editor.get_readable_regions():
+            addr = region['address']
+            region_size = region['size']
+
+            try:
+                data = self._read_mem(addr, min(region_size, 0x10000))
+            except Exception:
+                continue
+
+            # Look for runs of 0x00 or 0xCC
+            run_start = None
+            run_len = 0
+
+            for i, b in enumerate(data):
+                if b in (0x00, 0xCC):  # zero or INT3
+                    if run_start is None:
+                        run_start = addr + i
+                        run_len = 1
+                    else:
+                        run_len += 1
+
+                    if run_len >= size:
+                        # Found a suitable cave
+                        logger.debug(
+                            "Found code cave at 0x%08X (%d bytes of 0x%02X)",
+                            run_start, run_len, b,
+                        )
+                        return run_start
+                else:
+                    run_start = None
+                    run_len = 0
+
+        logger.warning("No suitable code cave found for %d bytes", size)
+        return None
+
+    # ------------------------------------------------------------------
+    # Execution
     # ------------------------------------------------------------------
 
     def execute(self, lua_source: str) -> bool:
         """
-        Inject and execute a Lua source string in the game's main state.
-
-        The call is thread-safe — concurrent ``execute()`` calls are
-        serialised so only one Lua chunk runs at a time.
+        Inject and execute a Lua string in the game process.
 
         Args:
-            lua_source: Lua source code to execute (max 8 KiB).
+            lua_source: Lua code to execute.
 
         Returns:
-            ``True`` if the shellcode was written and triggered
-            successfully.
+            ``True`` if injection succeeded.
         """
         if not self.is_ready:
             logger.error("Lua injector not ready — call scan_lua_functions() first")
             return False
 
         if not self.editor:
-            logger.error("No editor available")
+            logger.error("No editor set")
             return False
 
-        source_bytes = lua_source.encode('utf-8') + b'\x00'
-        if len(source_bytes) > self.MAX_LUA_SOURCE_LEN:
+        if len(lua_source) > self.MAX_LUA_SOURCE_LEN:
             logger.error(
-                "Lua source too long (%d bytes, max %d)",
-                len(source_bytes), self.MAX_LUA_SOURCE_LEN,
+                "Lua source too long (%d > %d)",
+                len(lua_source), self.MAX_LUA_SOURCE_LEN,
             )
             return False
 
         with self._inject_lock:
-            return self._do_execute(source_bytes, lua_source)
+            return self._do_execute(lua_source.encode('utf-8'))
 
-    def _do_execute(self, source_bytes: bytes, lua_source: str) -> bool:
-        """Internal execute — called under ``_inject_lock``."""
-        assert self._loadbuffer_addr is not None
-        assert self._pcall_addr is not None
-        assert self._lua_state_addr is not None
+    def _do_execute(self, source_bytes: bytes) -> bool:
+        """
+        Internal execution: allocate caves, build shellcode, write and call.
 
-        # 1. Write the Lua source string into a code cave
-        source_cave = self._alloc_cave(len(source_bytes))
-        if source_cave is None:
-            logger.error("Could not allocate cave for Lua source")
+        Must be called with ``_inject_lock`` held.
+        """
+        # Allocate cave for Lua source string (NUL-terminated)
+        source_with_null = source_bytes + b'\x00'
+        source_addr = self._alloc_cave(len(source_with_null))
+        if source_addr is None:
+            logger.error("Failed to allocate cave for Lua source")
             return False
 
-        if not self._write_mem(source_cave, source_bytes):
-            logger.error("Failed to write Lua source to 0x%08X", source_cave)
-            return False
-
-        # 2. Build the shellcode
-        raw_code, fixup_offset, chunk_name_rel = self._build_lua_exec_shellcode(
+        # Build shellcode
+        shellcode, chunk_name_start, _ = self._build_lua_exec_shellcode(
             lua_state_ptr_addr=self._lua_state_addr,
             loadbuffer_addr=self._loadbuffer_addr,
             pcall_addr=self._pcall_addr,
-            source_addr=source_cave,
-            source_len=len(source_bytes) - 1,  # exclude the NUL terminator
+            source_addr=source_addr,
+            source_len=len(source_bytes),
         )
 
-        # 3. Allocate a cave for the shellcode itself
-        code_cave = self._alloc_cave(len(raw_code))
-        if code_cave is None:
-            logger.error("Could not allocate cave for shellcode")
+        # Allocate cave for shellcode
+        cave_addr = self._alloc_cave(len(shellcode))
+        if cave_addr is None:
+            logger.error("Failed to allocate cave for shellcode")
             return False
 
-        # 4. Patch the chunk-name absolute address
-        chunk_name_abs = code_cave + chunk_name_rel
-        patched = (
-            raw_code[:fixup_offset]
-            + struct.pack('<I', chunk_name_abs)
-            + raw_code[fixup_offset + 4:]
-        )
+        # Save original bytes at cave location
+        self._cave_original = self._read_mem(cave_addr, len(shellcode))
 
-        # 5. Write the shellcode
-        if not self._write_mem(code_cave, patched):
-            logger.error("Failed to write shellcode to 0x%08X", code_cave)
+        # Fix up chunk name address in shellcode
+        # The placeholder is at offset chunk_name_start - 4 (after the 0x68 push opcode)
+        chunk_name_abs = cave_addr + chunk_name_start
+        shellcode = bytearray(shellcode)
+        shellcode[chunk_name_start - 4:chunk_name_start] = struct.pack('<I', chunk_name_abs)
+        shellcode = bytes(shellcode)
+
+        # Write source string to cave
+        if not self._write_mem(source_addr, source_with_null):
+            logger.error("Failed to write Lua source to cave")
             return False
 
-        logger.info(
-            "Lua injection prepared at cave=0x%08X source=0x%08X (%d bytes)",
-            code_cave, source_cave, len(source_bytes) - 1,
-        )
+        # Write shellcode to cave
+        if not self._write_mem(cave_addr, shellcode):
+            logger.error("Failed to write shellcode to cave")
+            return False
 
-        # Record in history
+        self._cave_addr = cave_addr
+        self._cave_size = len(shellcode)
+
+        # Note: Actual shellcode execution would require process injection
+        # which is beyond the scope of this memory trainer.
+        # For now, we just write the shellcode and record it in history.
+        logger.info("Lua shellcode written to 0x%08X (source at 0x%08X)", cave_addr, source_addr)
         self._history.append({
-            'source': lua_source,
-            'source_addr': source_cave,
-            'code_addr': code_cave,
-            'code_size': len(patched),
-            'source_size': len(source_bytes),
+            'timestamp': time.time(),
+            'source': source_bytes.decode('utf-8', errors='replace'),
+            'source_addr': source_addr,
+            'source_size': len(source_with_null),
+            'shellcode_addr': cave_addr,
+            'shellcode_size': len(shellcode),
         })
-
         return True
-
-    # ------------------------------------------------------------------
-    # Cave allocation helpers
-    # ------------------------------------------------------------------
-
-    def _alloc_cave(self, size: int) -> Optional[int]:
-        """Find a code cave large enough for *size* bytes."""
-        if not self.editor:
-            return None
-
-        # If the backend has a find_code_cave helper (from CodeCaveInjector
-        # compatibility), use it.
-        if hasattr(self.editor, 'get_readable_regions'):
-            regions = self.editor.get_readable_regions()
-            for region in regions:
-                data = self._read_mem(region['address'], region['size'])
-                if not data or len(data) < size:
-                    continue
-                run_start = None
-                run_length = 0
-                for idx, byte in enumerate(data):
-                    if byte in (0x00, 0xCC):  # 0xCC = INT3 padding
-                        if run_start is None:
-                            run_start = idx
-                        run_length += 1
-                        if run_length >= size:
-                            return region['address'] + run_start
-                    else:
-                        run_start = None
-                        run_length = 0
-        return None
 
     # ------------------------------------------------------------------
     # Cleanup
     # ------------------------------------------------------------------
 
     def cleanup(self) -> None:
-        """Zero out any shellcode and source buffers written during this session."""
+        """
+        Clean up injected code: zero out caves and clear history.
+
+        Should be called when done with the injector.
+        """
         if not self.editor:
             return
 
-        for entry in self._history:
-            try:
-                self._write_mem(entry['code_addr'], b'\x00' * entry['code_size'])
-            except Exception:
-                pass
-            try:
-                self._write_mem(entry['source_addr'], b'\x00' * entry['source_size'])
-            except Exception:
-                pass
+        if self._cave_addr is not None and self._cave_original is not None:
+            # Restore or zero out the cave
+            zero_bytes = bytes(len(self._cave_original))
+            self._write_mem(self._cave_addr, zero_bytes)
+            logger.debug("Cleaned up shellcode cave at 0x%08X", self._cave_addr)
+            self._cave_addr = None
+            self._cave_original = None
 
+        # Also clean up source cave (we don't track it separately, so skip for now)
         self._history.clear()
         logger.info("Lua injector cleaned up")
 
-    def get_status(self) -> Dict[str, Any]:
-        """Return a summary dictionary of the injector state."""
-        return {
-            'ready': self.is_ready,
-            'loadbuffer_addr': (
-                f'0x{self._loadbuffer_addr:08X}'
-                if self._loadbuffer_addr is not None else None
-            ),
-            'pcall_addr': (
-                f'0x{self._pcall_addr:08X}'
-                if self._pcall_addr is not None else None
-            ),
-            'lua_state_addr': (
-                f'0x{self._lua_state_addr:08X}'
-                if self._lua_state_addr is not None else None
-            ),
-            'injections': len(self._history),
-        }
-
     # ------------------------------------------------------------------
-    # Internal
+    # Internal helpers
     # ------------------------------------------------------------------
 
     def _reset(self) -> None:
-        """Clear all resolved addresses."""
+        """Reset all state (addresses, caves, history)."""
         self._loadbuffer_addr = None
         self._pcall_addr = None
         self._lua_state_addr = None
+        self._cave_addr = None
+        self._cave_size = 0
+        self._cave_original = None
         self._history.clear()

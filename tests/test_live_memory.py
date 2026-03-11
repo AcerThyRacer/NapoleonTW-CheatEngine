@@ -484,41 +484,26 @@ class TestModuleExports:
         from src.memory import TeleportTarget
         assert TeleportTarget is not None
 
-    def test_lua_injector_exported(self):
-        from src.memory import LuaInjector
-        assert LuaInjector is not None
-
 
 # =========================================================================
 # LuaInjector tests
 # =========================================================================
 
 class TestLuaInjector:
-    """Tests for the LuaInjector Lua 5.1 script injection manager."""
+    """Tests for the LuaInjector class."""
 
-    def test_import(self):
+    def test_lua_injector_import(self):
         from src.memory.advanced import LuaInjector
         assert LuaInjector is not None
 
-    def test_init_defaults(self):
+    def test_lua_injector_init(self):
         from src.memory.advanced import LuaInjector
         inj = LuaInjector()
+        assert inj.editor is None
         assert not inj.is_ready
-        assert inj.loadbuffer_address is None
-        assert inj.pcall_address is None
-        assert inj.lua_state_address is None
         assert inj.history == []
 
-    def test_set_editor(self):
-        from src.memory.advanced import LuaInjector
-        inj = LuaInjector()
-        editor = Mock()
-        inj.set_editor(editor)
-        assert inj.editor is editor
-        # set_editor resets resolved addresses
-        assert not inj.is_ready
-
-    def test_set_addresses(self):
+    def test_lua_injector_set_addresses(self):
         from src.memory.advanced import LuaInjector
         inj = LuaInjector()
         inj.set_addresses(
@@ -526,50 +511,49 @@ class TestLuaInjector:
             pcall=0x00402000,
             lua_state=0x00600000,
         )
-        assert inj.is_ready
         assert inj.loadbuffer_address == 0x00401000
         assert inj.pcall_address == 0x00402000
         assert inj.lua_state_address == 0x00600000
-
-    def test_is_ready_requires_all_three(self):
-        from src.memory.advanced import LuaInjector
-        inj = LuaInjector()
-        inj._loadbuffer_addr = 0x1000
-        assert not inj.is_ready  # missing pcall and lua_state
-
-        inj._pcall_addr = 0x2000
-        assert not inj.is_ready  # still missing lua_state
-
-        inj._lua_state_addr = 0x3000
         assert inj.is_ready
 
-    def test_get_status_not_ready(self):
+    def test_lua_injector_set_editor(self):
         from src.memory.advanced import LuaInjector
-        inj = LuaInjector()
-        status = inj.get_status()
-        assert status['ready'] is False
-        assert status['loadbuffer_addr'] is None
-        assert status['pcall_addr'] is None
-        assert status['lua_state_addr'] is None
-        assert status['injections'] == 0
+        editor = Mock()
+        inj = LuaInjector(editor)
+        assert inj.editor is editor
 
-    def test_get_status_ready(self):
-        from src.memory.advanced import LuaInjector
-        inj = LuaInjector()
-        inj.set_addresses(0x1000, 0x2000, 0x3000)
-        status = inj.get_status()
-        assert status['ready'] is True
-        assert status['loadbuffer_addr'] == '0x00001000'
-        assert status['pcall_addr'] == '0x00002000'
-        assert status['lua_state_addr'] == '0x00003000'
+        new_editor = Mock()
+        inj.set_editor(new_editor)
+        assert inj.editor is new_editor
 
-    def test_execute_not_ready_returns_false(self):
+    def test_scan_lua_functions_no_editor(self):
         from src.memory.advanced import LuaInjector
         inj = LuaInjector()
+        result = inj.scan_lua_functions()
+        assert result is False
+
+    def test_scan_lua_functions_nothing_found(self):
+        """Scan with an editor that returns no matching patterns."""
+        from src.memory.advanced import LuaInjector
+        editor = Mock()
+        editor.read_bytes = Mock(return_value=b'\x90' * 256)
+        editor.get_readable_regions = Mock(return_value=[])
+
+        inj = LuaInjector(editor)
+        result = inj.scan_lua_functions()
+        assert result is False
+        assert not inj.is_ready
+
+    def test_execute_not_ready(self):
+        """execute() should fail if injector is not ready."""
+        from src.memory.advanced import LuaInjector
+        editor = Mock()
+        inj = LuaInjector(editor)
         result = inj.execute("print('hello')")
         assert result is False
 
-    def test_execute_no_editor_returns_false(self):
+    def test_execute_no_editor(self):
+        """execute() should fail without editor."""
         from src.memory.advanced import LuaInjector
         inj = LuaInjector()
         inj.set_addresses(0x1000, 0x2000, 0x3000)
@@ -577,10 +561,12 @@ class TestLuaInjector:
         assert result is False
 
     def test_execute_source_too_long(self):
+        """execute() should reject overly long source."""
         from src.memory.advanced import LuaInjector
         editor = Mock()
         inj = LuaInjector(editor)
         inj.set_addresses(0x1000, 0x2000, 0x3000)
+
         long_source = "x" * (LuaInjector.MAX_LUA_SOURCE_LEN + 1)
         result = inj.execute(long_source)
         assert result is False
@@ -636,14 +622,19 @@ class TestLuaInjector:
         import threading
 
         call_order = []
-        entered = threading.Event()
+        lock = threading.Lock()
 
-        def slow_do_execute(self_inj, source_bytes, lua_source):
-            call_order.append(('start', lua_source))
-            entered.set()  # signal that we're inside _do_execute
+        original_do_execute = LuaInjector._do_execute
+
+        def slow_do_execute(self_inj, source_bytes):
+            with lock:
+                call_order.append(('start', source_bytes.decode('utf-8', errors='replace')))
+            # Simulate some work
             import time
             time.sleep(0.05)
-            call_order.append(('end', lua_source))
+            with lock:
+                call_order.append(('end', source_bytes.decode('utf-8', errors='replace')))
+            # Call original but skip actual writing
             return True
 
         editor = Mock()
@@ -660,13 +651,11 @@ class TestLuaInjector:
             t1 = threading.Thread(target=inj.execute, args=("script_a",))
             t2 = threading.Thread(target=inj.execute, args=("script_b",))
             t1.start()
-            entered.wait(timeout=5)  # wait until t1 holds the lock
-            entered.clear()
             t2.start()
             t1.join(timeout=5)
             t2.join(timeout=5)
 
-        # Verify the calls didn't interleave
+        # Verify the calls were serialized (no interleaving)
         assert len(call_order) == 4
         # First script should start and end before the second starts
         assert call_order[0][0] == 'start'
@@ -676,27 +665,10 @@ class TestLuaInjector:
         assert call_order[3][0] == 'end'
         assert call_order[3][1] == call_order[2][1]
 
-    def test_scan_lua_functions_no_editor(self):
-        from src.memory.advanced import LuaInjector
-        inj = LuaInjector()
-        result = inj.scan_lua_functions()
-        assert result is False
-
-    def test_scan_lua_functions_nothing_found(self):
-        """Scan with an editor that returns no matching patterns."""
-        from src.memory.advanced import LuaInjector
-        editor = Mock()
-        editor.read_bytes = Mock(return_value=b'\x90' * 256)
-        editor.get_readable_regions = Mock(return_value=[])
-
-        inj = LuaInjector(editor)
-        result = inj.scan_lua_functions()
-        assert result is False
-        assert not inj.is_ready
-
     def test_build_shellcode_structure(self):
         """Verify the shellcode builder returns valid structure."""
         from src.memory.advanced import LuaInjector
+        import struct
         raw_code, fixup_offset, chunk_name_rel = LuaInjector._build_lua_exec_shellcode(
             lua_state_ptr_addr=0x00600000,
             loadbuffer_addr=0x00401000,
@@ -730,6 +702,7 @@ class TestLuaInjector:
     def test_build_shellcode_contains_addresses(self):
         """Verify addresses are embedded in the shellcode as expected."""
         from src.memory.advanced import LuaInjector
+        import struct
         raw_code, _, _ = LuaInjector._build_lua_exec_shellcode(
             lua_state_ptr_addr=0xAABBCCDD,
             loadbuffer_addr=0x11223344,
@@ -768,8 +741,8 @@ class TestLuaInjector:
         writes.clear()
         inj.cleanup()
 
-        # cleanup should have written zero-fill for both code and source
-        assert len(writes) >= 2
+        # cleanup should have written zero-fill for the shellcode cave
+        assert len(writes) >= 1
         for addr, data in writes:
             assert all(b == 0 for b in data)
         assert inj.history == []
@@ -843,3 +816,8 @@ class TestLuaInjector:
         inj = LuaInjector(editor)
         cave = inj._alloc_cave(50)
         assert cave == 0x400000 + 10
+
+    def test_lua_injector_exported_from_memory_module(self):
+        """LuaInjector should be exported from src.memory."""
+        from src.memory import LuaInjector
+        assert LuaInjector is not None

@@ -348,7 +348,7 @@ class TrainerTab(QWidget):
                 QMessageBox.information(self, "Hook Repair", msg)
         else:
             QMessageBox.information(self, "Hook Repair", "All hooks are intact. No repair needed.")
-
+    
     def _update_cheat_status(self) -> None:
         """Update cheat status display."""
         was_attached = getattr(self, '_was_attached', False)
