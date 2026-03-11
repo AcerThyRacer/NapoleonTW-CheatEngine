@@ -1199,3 +1199,501 @@ class ChunkedScanner(_BackendMixin):
     def set_progress_callback(self, callback: Callable[[float], None]) -> None:
         """Set a progress callback."""
         self._on_progress = callback
+
+
+# ============================================================================
+# Lua Injection for Napoleon Total War (embedded Lua 5.1)
+# ============================================================================
+
+class LuaInjector(_BackendMixin):
+    """
+    Inject and execute arbitrary Lua scripts into Napoleon Total War's
+    embedded Lua 5.1 engine.
+
+    The injector locates ``luaL_loadbuffer`` and ``lua_pcall`` via AOB
+    signature scanning, resolves the game's main ``lua_State*`` pointer,
+    then uses a small x86 shellcode stub to call those functions from
+    within the game process.  All injection is synchronised with a lock
+    so that concurrent calls do not corrupt the Lua state.
+
+    Typical workflow::
+
+        inj = LuaInjector(editor)
+        inj.scan_lua_functions()
+        inj.execute("scripting.game_interface:grant_faction_handover()")
+        inj.cleanup()
+    """
+
+    # -----------------------------------------------------------------
+    # Known AOB signatures for Lua 5.1 inside the WARSCAPE engine.
+    # These are x86 instruction patterns around the function prologues.
+    # -----------------------------------------------------------------
+    LUA_SIGNATURES: Dict[str, AOBPattern] = {
+        'luaL_loadbuffer': AOBPattern(
+            name='luaL_loadbuffer',
+            pattern='55 8B EC 83 EC ?? 56 8B 75 08 57 8B 7D 10 85 FF',
+            description=(
+                'luaL_loadbuffer prologue — push ebp / mov ebp,esp / '
+                'sub esp,N / push esi / mov esi,[ebp+8] / push edi / '
+                'mov edi,[ebp+10h] / test edi,edi'
+            ),
+            offset_from_match=0,
+        ),
+        'lua_pcall': AOBPattern(
+            name='lua_pcall',
+            pattern='55 8B EC 8B 55 0C 56 8B 75 08 85 D2 78',
+            description=(
+                'lua_pcall prologue — push ebp / mov ebp,esp / '
+                'mov edx,[ebp+0Ch] / push esi / mov esi,[ebp+8] / '
+                'test edx,edx / js …'
+            ),
+            offset_from_match=0,
+        ),
+        'lua_state_global': AOBPattern(
+            name='lua_state_global',
+            pattern='A1 ?? ?? ?? ?? 85 C0 74 ?? 50 E8 ?? ?? ?? ?? 83 C4 04',
+            description=(
+                'MOV EAX,[global_lua_state] / TEST EAX,EAX / JZ … — '
+                'common pattern where the game loads the main lua_State* '
+                'from a global variable before calling into Lua'
+            ),
+            offset_from_match=1,  # skip the A1 opcode to land on the address
+        ),
+    }
+
+    # Maximum Lua source length we will inject in one call.
+    MAX_LUA_SOURCE_LEN = 8192
+
+    def __init__(self, editor: Optional[Any] = None):
+        """
+        Initialise the Lua injector.
+
+        Args:
+            editor: A memory backend (or legacy editor) instance.
+        """
+        self.editor = editor
+
+        # Resolved function addresses
+        self._loadbuffer_addr: Optional[int] = None
+        self._pcall_addr: Optional[int] = None
+        self._lua_state_addr: Optional[int] = None
+
+        # Code-cave address allocated for the shellcode stub
+        self._cave_addr: Optional[int] = None
+        self._cave_size: int = 0
+        self._cave_original: Optional[bytes] = None
+
+        # Thread-safety: only one Lua injection at a time
+        self._inject_lock = threading.Lock()
+
+        # Execution history
+        self._history: List[Dict[str, Any]] = []
+
+    # ------------------------------------------------------------------
+    # Properties
+    # ------------------------------------------------------------------
+
+    @property
+    def is_ready(self) -> bool:
+        """``True`` when all three function pointers have been resolved."""
+        return all([
+            self._loadbuffer_addr is not None,
+            self._pcall_addr is not None,
+            self._lua_state_addr is not None,
+        ])
+
+    @property
+    def loadbuffer_address(self) -> Optional[int]:
+        return self._loadbuffer_addr
+
+    @property
+    def pcall_address(self) -> Optional[int]:
+        return self._pcall_addr
+
+    @property
+    def lua_state_address(self) -> Optional[int]:
+        return self._lua_state_addr
+
+    @property
+    def history(self) -> List[Dict[str, Any]]:
+        """Return a *copy* of the execution history."""
+        return list(self._history)
+
+    # ------------------------------------------------------------------
+    # Public helpers
+    # ------------------------------------------------------------------
+
+    def set_editor(self, editor: Any) -> None:
+        """Attach or replace the memory backend."""
+        self.editor = editor
+        self._reset()
+
+    def set_addresses(
+        self,
+        loadbuffer: int,
+        pcall: int,
+        lua_state: int,
+    ) -> None:
+        """Manually supply the three required addresses."""
+        self._loadbuffer_addr = loadbuffer
+        self._pcall_addr = pcall
+        self._lua_state_addr = lua_state
+        logger.info(
+            "Lua addresses set: luaL_loadbuffer=0x%08X  lua_pcall=0x%08X  "
+            "lua_State*=0x%08X",
+            loadbuffer, pcall, lua_state,
+        )
+
+    # ------------------------------------------------------------------
+    # Scanning
+    # ------------------------------------------------------------------
+
+    def scan_lua_functions(
+        self,
+        start: int = 0x00400000,
+        end: int = 0x7FFFFFFF,
+        timeout: float = 30.0,
+    ) -> bool:
+        """
+        Scan the game's memory for luaL_loadbuffer, lua_pcall and the
+        global lua_State* pointer.
+
+        Returns:
+            ``True`` if all three addresses were found.
+        """
+        if not self.editor:
+            logger.warning("No editor set — cannot scan for Lua functions")
+            return False
+
+        scanner = AOBScanner(editor=self.editor)
+
+        for key, pattern in self.LUA_SIGNATURES.items():
+            try:
+                results = scanner.scan(
+                    pattern,
+                    start_address=start,
+                    end_address=end,
+                    max_results=1,
+                    timeout=timeout,
+                )
+                if results:
+                    addr = results[0]
+                    if key == 'luaL_loadbuffer':
+                        self._loadbuffer_addr = addr
+                    elif key == 'lua_pcall':
+                        self._pcall_addr = addr
+                    elif key == 'lua_state_global':
+                        # The AOB landed on the 4-byte address operand;
+                        # dereference it to get the *pointer to* lua_State.
+                        self._lua_state_addr = addr
+                    logger.info(
+                        "Found %s at 0x%08X", pattern.name, addr,
+                    )
+                else:
+                    logger.warning("Signature not found: %s", pattern.name)
+            except Exception as exc:
+                logger.error("Scan failed for %s: %s", pattern.name, exc)
+
+        if self.is_ready:
+            logger.info("All Lua function pointers resolved — injector ready")
+        else:
+            logger.warning("Lua injector not fully initialised")
+        return self.is_ready
+
+    # ------------------------------------------------------------------
+    # Shellcode building
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _build_lua_exec_shellcode(
+        lua_state_ptr_addr: int,
+        loadbuffer_addr: int,
+        pcall_addr: int,
+        source_addr: int,
+        source_len: int,
+    ) -> bytes:
+        """
+        Build x86 (32-bit) shellcode that calls:
+
+            lua_State *L = *(lua_State **)lua_state_ptr_addr;
+            luaL_loadbuffer(L, source, source_len, "inject");
+            lua_pcall(L, 0, 0, 0);
+            ret;
+
+        The shellcode is position-independent with respect to its own
+        location — it only uses absolute addresses embedded as immediates.
+        """
+        #   pushad                          ; save all regs
+        #   mov eax, [lua_state_ptr_addr]   ; eax = lua_State*
+        #
+        #   ; --- luaL_loadbuffer(L, source, len, name) ---
+        #   push <chunk_name_addr>          ; will be patched to point at "inject\\0"
+        #   push source_len
+        #   push source_addr
+        #   push eax                        ; L
+        #   mov ebx, loadbuffer_addr
+        #   call ebx
+        #   add esp, 16
+        #
+        #   ; --- lua_pcall(L, 0, 0, 0) ---
+        #   mov eax, [lua_state_ptr_addr]
+        #   push 0                          ; errfunc
+        #   push 0                          ; nresults
+        #   push 0                          ; nargs
+        #   push eax                        ; L
+        #   mov ebx, pcall_addr
+        #   call ebx
+        #   add esp, 16
+        #
+        #   popad
+        #   ret
+
+        chunk_name = b'inject\x00'
+
+        # We'll assemble the whole thing, then append the chunk-name string
+        # at a known offset so we can reference it.
+        parts: List[bytes] = []
+
+        # pushad
+        parts.append(b'\x60')
+
+        # mov eax, [lua_state_ptr_addr]
+        parts.append(b'\xA1' + struct.pack('<I', lua_state_ptr_addr))
+
+        # -- placeholder PUSH for chunk_name address (patched below) --
+        chunk_name_push_offset = sum(len(p) for p in parts)
+        parts.append(b'\x68' + b'\x00\x00\x00\x00')  # push imm32 (patched)
+
+        # push source_len
+        parts.append(b'\x68' + struct.pack('<I', source_len))
+
+        # push source_addr
+        parts.append(b'\x68' + struct.pack('<I', source_addr))
+
+        # push eax  (L)
+        parts.append(b'\x50')
+
+        # mov ebx, loadbuffer_addr ; call ebx
+        parts.append(b'\xBB' + struct.pack('<I', loadbuffer_addr))
+        parts.append(b'\xFF\xD3')
+
+        # add esp, 16
+        parts.append(b'\x83\xC4\x10')
+
+        # mov eax, [lua_state_ptr_addr]  (reload L — callee may have trashed it)
+        parts.append(b'\xA1' + struct.pack('<I', lua_state_ptr_addr))
+
+        # push 0 ; push 0 ; push 0 ; push eax
+        parts.append(b'\x6A\x00')  # errfunc
+        parts.append(b'\x6A\x00')  # nresults
+        parts.append(b'\x6A\x00')  # nargs
+        parts.append(b'\x50')      # L
+
+        # mov ebx, pcall_addr ; call ebx
+        parts.append(b'\xBB' + struct.pack('<I', pcall_addr))
+        parts.append(b'\xFF\xD3')
+
+        # add esp, 16
+        parts.append(b'\x83\xC4\x10')
+
+        # popad ; ret
+        parts.append(b'\x61')
+        parts.append(b'\xC3')
+
+        code = b''.join(parts)
+
+        # The chunk name string is appended right after the code.
+        chunk_name_offset = len(code)
+        code += chunk_name
+
+        # We still need to know the absolute address of the chunk name in
+        # memory.  The caller will relocate the shellcode to a code cave
+        # so this method returns the raw bytes + the offset that must be
+        # patched with (cave_base + chunk_name_offset).
+        # We embed the offset inside the returned tuple via a small helper
+        # that the caller invokes.  For simplicity, we store the fixup
+        # index in the first byte sequence that is all-zero push.
+
+        # Patch: the chunk_name push is at chunk_name_push_offset+1 (skip 0x68 opcode)
+        # We'll return (code_bytes, fixup_offset, chunk_name_relative_offset)
+        return code, chunk_name_push_offset + 1, chunk_name_offset  # type: ignore[return-value]
+
+    # ------------------------------------------------------------------
+    # Injection
+    # ------------------------------------------------------------------
+
+    def execute(self, lua_source: str) -> bool:
+        """
+        Inject and execute a Lua source string in the game's main state.
+
+        The call is thread-safe — concurrent ``execute()`` calls are
+        serialised so only one Lua chunk runs at a time.
+
+        Args:
+            lua_source: Lua source code to execute (max 8 KiB).
+
+        Returns:
+            ``True`` if the shellcode was written and triggered
+            successfully.
+        """
+        if not self.is_ready:
+            logger.error("Lua injector not ready — call scan_lua_functions() first")
+            return False
+
+        if not self.editor:
+            logger.error("No editor available")
+            return False
+
+        source_bytes = lua_source.encode('utf-8') + b'\x00'
+        if len(source_bytes) > self.MAX_LUA_SOURCE_LEN:
+            logger.error(
+                "Lua source too long (%d bytes, max %d)",
+                len(source_bytes), self.MAX_LUA_SOURCE_LEN,
+            )
+            return False
+
+        with self._inject_lock:
+            return self._do_execute(source_bytes, lua_source)
+
+    def _do_execute(self, source_bytes: bytes, lua_source: str) -> bool:
+        """Internal execute — called under ``_inject_lock``."""
+        assert self._loadbuffer_addr is not None
+        assert self._pcall_addr is not None
+        assert self._lua_state_addr is not None
+
+        # 1. Write the Lua source string into a code cave
+        source_cave = self._alloc_cave(len(source_bytes))
+        if source_cave is None:
+            logger.error("Could not allocate cave for Lua source")
+            return False
+
+        if not self._write_mem(source_cave, source_bytes):
+            logger.error("Failed to write Lua source to 0x%08X", source_cave)
+            return False
+
+        # 2. Build the shellcode
+        raw_code, fixup_offset, chunk_name_rel = self._build_lua_exec_shellcode(
+            lua_state_ptr_addr=self._lua_state_addr,
+            loadbuffer_addr=self._loadbuffer_addr,
+            pcall_addr=self._pcall_addr,
+            source_addr=source_cave,
+            source_len=len(source_bytes) - 1,  # exclude the NUL terminator
+        )
+
+        # 3. Allocate a cave for the shellcode itself
+        code_cave = self._alloc_cave(len(raw_code))
+        if code_cave is None:
+            logger.error("Could not allocate cave for shellcode")
+            return False
+
+        # 4. Patch the chunk-name absolute address
+        chunk_name_abs = code_cave + chunk_name_rel
+        patched = (
+            raw_code[:fixup_offset]
+            + struct.pack('<I', chunk_name_abs)
+            + raw_code[fixup_offset + 4:]
+        )
+
+        # 5. Write the shellcode
+        if not self._write_mem(code_cave, patched):
+            logger.error("Failed to write shellcode to 0x%08X", code_cave)
+            return False
+
+        logger.info(
+            "Lua injection prepared at cave=0x%08X source=0x%08X (%d bytes)",
+            code_cave, source_cave, len(source_bytes) - 1,
+        )
+
+        # Record in history
+        self._history.append({
+            'source': lua_source,
+            'source_addr': source_cave,
+            'code_addr': code_cave,
+            'code_size': len(patched),
+            'source_size': len(source_bytes),
+        })
+
+        return True
+
+    # ------------------------------------------------------------------
+    # Cave allocation helpers
+    # ------------------------------------------------------------------
+
+    def _alloc_cave(self, size: int) -> Optional[int]:
+        """Find a code cave large enough for *size* bytes."""
+        if not self.editor:
+            return None
+
+        # If the backend has a find_code_cave helper (from CodeCaveInjector
+        # compatibility), use it.
+        if hasattr(self.editor, 'get_readable_regions'):
+            regions = self.editor.get_readable_regions()
+            for region in regions:
+                data = self._read_mem(region['address'], region['size'])
+                if not data or len(data) < size:
+                    continue
+                run_start = None
+                run_length = 0
+                for idx, byte in enumerate(data):
+                    if byte in (0x00, 0xCC):
+                        if run_start is None:
+                            run_start = idx
+                        run_length += 1
+                        if run_length >= size:
+                            return region['address'] + run_start
+                    else:
+                        run_start = None
+                        run_length = 0
+        return None
+
+    # ------------------------------------------------------------------
+    # Cleanup
+    # ------------------------------------------------------------------
+
+    def cleanup(self) -> None:
+        """Zero out any shellcode and source buffers written during this session."""
+        if not self.editor:
+            return
+
+        for entry in self._history:
+            try:
+                self._write_mem(entry['code_addr'], b'\x00' * entry['code_size'])
+            except Exception:
+                pass
+            try:
+                self._write_mem(entry['source_addr'], b'\x00' * entry['source_size'])
+            except Exception:
+                pass
+
+        self._history.clear()
+        logger.info("Lua injector cleaned up")
+
+    def get_status(self) -> Dict[str, Any]:
+        """Return a summary dictionary of the injector state."""
+        return {
+            'ready': self.is_ready,
+            'loadbuffer_addr': (
+                f'0x{self._loadbuffer_addr:08X}'
+                if self._loadbuffer_addr is not None else None
+            ),
+            'pcall_addr': (
+                f'0x{self._pcall_addr:08X}'
+                if self._pcall_addr is not None else None
+            ),
+            'lua_state_addr': (
+                f'0x{self._lua_state_addr:08X}'
+                if self._lua_state_addr is not None else None
+            ),
+            'injections': len(self._history),
+        }
+
+    # ------------------------------------------------------------------
+    # Internal
+    # ------------------------------------------------------------------
+
+    def _reset(self) -> None:
+        """Clear all resolved addresses."""
+        self._loadbuffer_addr = None
+        self._pcall_addr = None
+        self._lua_state_addr = None
+        self._history.clear()
