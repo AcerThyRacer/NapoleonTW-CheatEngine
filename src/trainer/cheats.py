@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING, Dict, Optional, Callable
 from dataclasses import dataclass
 
 from src.memory import CheatManager, CheatType
+from src.trainer.sync import CheatSyncManager
 
 if TYPE_CHECKING:
     from src.trainer.sync import CheatSyncManager
@@ -42,9 +43,41 @@ class TrainerCheats:
         self.sync_manager = sync_manager
         self.cheat_status: Dict[CheatType, CheatStatus] = {}
         self.custom_cheats: Dict[str, Callable] = {}
+        self.sync_manager: Optional[CheatSyncManager] = None
+        self._syncing_cheats: set = set()
         
         # Initialize status tracking
         self._init_cheat_status()
+
+    def enable_sync(self, port_start: int = 27015, port_end: int = 27025) -> bool:
+        """Enable multi-process cheat synchronization."""
+        if not self.sync_manager:
+            self.sync_manager = CheatSyncManager(port_start=port_start, port_end=port_end)
+            self.sync_manager.set_callback(self._on_sync_received)
+        return self.sync_manager.start()
+
+    def disable_sync(self) -> None:
+        """Disable multi-process cheat synchronization."""
+        if self.sync_manager:
+            self.sync_manager.stop()
+            self.sync_manager = None
+
+    def set_sync_override(self, cheat_type: CheatType, ignore: bool) -> None:
+        """Configure per-instance override for a cheat type."""
+        if self.sync_manager:
+            self.sync_manager.set_override(cheat_type, ignore)
+
+    def _on_sync_received(self, cheat_type: CheatType, is_active: bool) -> None:
+        """Handle incoming sync events from other trainer instances."""
+        current_active = self.cheat_manager.is_cheat_active(cheat_type)
+        if current_active == is_active:
+            return
+
+        self._syncing_cheats.add(cheat_type)
+        try:
+            self.toggle_cheat(cheat_type)
+        finally:
+            self._syncing_cheats.discard(cheat_type)
     
     def _init_cheat_status(self) -> None:
         """Initialize cheat status tracking."""
@@ -93,6 +126,11 @@ class TrainerCheats:
                 
                 action = "activated" if is_active else "deactivated"
                 print(f"{self.cheat_status[cheat_type].name} {action}")
+
+                # Broadcast to other instances if sync is enabled
+                if self.sync_manager and cheat_type not in self._syncing_cheats:
+                    if not self.sync_manager.is_overridden(cheat_type):
+                        self.sync_manager.broadcast_toggle(cheat_type, is_active)
         
         return success
     
