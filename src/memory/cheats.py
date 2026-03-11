@@ -228,6 +228,7 @@ class CheatManager:
         self._pointer_resolver = None
         self._aob_scanner = None
         self.signature_db = None
+        self.saved_cheat_state: List[CheatType] = []
 
         self._load_signatures()
         self.cheat_definitions = self._init_cheat_definitions()
@@ -809,6 +810,11 @@ class CheatManager:
         )
 
         if not success:
+            # Write might have failed due to invalid address (e.g. ASLR shift)
+            # Invalidate cached address so it re-resolves next time
+            if cheat_def.cheat_type in self._resolved_addresses:
+                print(f"Invalidating cached address for {cheat_def.name}...")
+                del self._resolved_addresses[cheat_def.cheat_type]
             return False
 
         self.memory_scanner.freeze_value(address, cheat_def.cheat_value, cheat_def.value_type)
@@ -859,6 +865,9 @@ class CheatManager:
 
         patched = b'\x90' * nop_bytes
         if not self.memory_scanner.backend.write_bytes(match_address, patched):
+            if cheat_def.cheat_type in self._resolved_addresses:
+                print(f"Invalidating cached address for {cheat_def.name}...")
+                del self._resolved_addresses[cheat_def.cheat_type]
             return False
 
         self.active_cheats[cheat_def.cheat_type] = {
@@ -897,6 +906,9 @@ class CheatManager:
             overwrite_size=cheat_def.overwrite_size,
         )
         if not patches:
+            if cheat_def.cheat_type in self._resolved_addresses:
+                print(f"Invalidating cached address for {cheat_def.name}...")
+                del self._resolved_addresses[cheat_def.cheat_type]
             return False
 
         self.active_cheats[cheat_def.cheat_type] = {
@@ -1081,6 +1093,23 @@ class CheatManager:
         """Deactivate all active cheats."""
         for cheat_type in list(self.active_cheats.keys()):
             self.deactivate_cheat(cheat_type)
+
+    def save_active_cheats_state(self) -> None:
+        """Save the current active cheats to be restored later (e.g., after process crash)."""
+        self.saved_cheat_state = list(self.active_cheats.keys())
+        # Automatically deactivate them to clean up internal state
+        for cheat_type in self.saved_cheat_state:
+            self.deactivate_cheat(cheat_type)
+
+    def restore_saved_cheats(self) -> int:
+        """Restore cheats that were saved previously. Returns number of cheats restored."""
+        restored_count = 0
+        for cheat_type in self.saved_cheat_state:
+            if self.activate_cheat(cheat_type):
+                restored_count += 1
+
+        self.saved_cheat_state.clear()
+        return restored_count
 
     def _get_cheat_definition(self, cheat_type: CheatType) -> Optional[CheatDefinition]:
         """Get a cheat definition."""

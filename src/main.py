@@ -30,6 +30,12 @@ def _load_startup_plugins():
 def main():
     """Main entry point."""
     import os
+
+    # Start global async error reporter
+    from src.utils.error_reporter import AsyncErrorReporter
+    reporter = AsyncErrorReporter()
+    reporter.start()
+
     if hasattr(os, 'geteuid') and os.geteuid() == 0:
         print("\n\033[1;31m[SECURITY WARNING]\033[0m")
         print("You are running this tool as root (sudo). This is a severe security risk!")
