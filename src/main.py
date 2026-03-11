@@ -14,6 +14,11 @@ __version__ = "2.1.0"
 logger = logging.getLogger('napoleon.main')
 
 
+def _service_or_default(service: EngineService | None) -> EngineService:
+    """Return the provided service or a default one for direct entry-point use."""
+    return service or EngineService()
+
+
 def build_parser() -> argparse.ArgumentParser:
     """Create the canonical CLI parser for all startup modes."""
     parser = argparse.ArgumentParser(
@@ -28,7 +33,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument('--web', action='store_true', help='Launch the web application backend')
     parser.add_argument('--debug', action='store_true', help='Enable debug logging')
     parser.add_argument('--verbose', '-v', action='store_true', help='Enable verbose output')
-    parser.add_argument('--ini', type=str, default='napoleon.ini', help='Path to the .ini configuration file (default: napoleon.ini)')
+    parser.add_argument('--ini', type=str, default='napoleon.ini', help='Path to the INI configuration file (default: napoleon.ini)')
     parser.add_argument('--version', action='version', version=f'%(prog)s {__version__}')
     return parser
 
@@ -78,7 +83,7 @@ def main(argv=None):
 
 def launch_gui(service: EngineService | None = None):
     """Launch the GUI application."""
-    active_service = service or EngineService()
+    active_service = _service_or_default(service)
 
     def _launch(prepared_service: EngineService):
         try:
@@ -102,14 +107,14 @@ def launch_gui(service: EngineService | None = None):
 
 def launch_cli(service: EngineService | None = None):
     """Launch CLI interface."""
-    active_service = service or EngineService()
+    active_service = _service_or_default(service)
     from src.cli.interactive import run_cli
     return active_service.run(run_cli)
 
 
 def launch_trainer(service: EngineService | None = None):
     """Launch trainer mode."""
-    active_service = service or EngineService()
+    active_service = _service_or_default(service)
 
     def _launch(_prepared_service: EngineService):
         print("Napoleon Total War Trainer")
@@ -190,7 +195,7 @@ def launch_trainer(service: EngineService | None = None):
 
 def launch_background_trainer(service: EngineService | None = None):
     """Launch background trainer mode."""
-    active_service = service or EngineService()
+    active_service = _service_or_default(service)
 
     def _launch(_prepared_service: EngineService):
         print("Napoleon Total War Background Trainer")
@@ -222,7 +227,7 @@ def launch_background_trainer(service: EngineService | None = None):
 
 def launch_panel(service: EngineService | None = None):
     """Launch Napoleon Control Panel (animated GUI)."""
-    active_service = service or EngineService()
+    active_service = _service_or_default(service)
 
     def _launch(prepared_service: EngineService):
         print("Napoleon Total War - Napoleon's Command Panel")
@@ -248,7 +253,7 @@ def launch_panel(service: EngineService | None = None):
 
 def launch_memory_scanner(service: EngineService | None = None):
     """Launch memory scanner only."""
-    active_service = service or EngineService()
+    active_service = _service_or_default(service)
 
     def _launch(_prepared_service: EngineService):
         print("Napoleon Total War Memory Scanner")
@@ -337,7 +342,7 @@ def launch_memory_scanner(service: EngineService | None = None):
 
 def launch_web(service: EngineService | None = None):
     """Launch the web application backend."""
-    active_service = service or EngineService()
+    active_service = _service_or_default(service)
     from src.server.websocket_server import run_server
     return active_service.run(run_server)
 

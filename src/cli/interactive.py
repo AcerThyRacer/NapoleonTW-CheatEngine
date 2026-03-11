@@ -703,8 +703,11 @@ class InteractiveCLI(cmd.Cmd):
                 pass
 
 
-def run_cli(_service=None):
+def run_cli(service=None):
     """Launch the interactive CLI."""
+    if service is not None:
+        service.logger.debug("Launching interactive CLI")
+
     cli = InteractiveCLI()
     try:
         cli.cmdloop()

@@ -13,13 +13,13 @@ class TestEngineService:
     """Tests for canonical application bootstrap."""
 
     def test_bootstrap_uses_ini_log_level_once(self, tmp_path):
-        ini_path = tmp_path / "napoleon.ini"
-        ini_path.write_text("[Logging]\nlevel = warning\n", encoding="utf-8")
+        config_ini_path = tmp_path / "napoleon.ini"
+        config_ini_path.write_text("[Logging]\nlevel = warning\n", encoding="utf-8")
 
         setup_logging = Mock()
         error_reporter_factory = Mock(return_value=Mock())
         service = EngineService(
-            ini_path=ini_path,
+            ini_path=config_ini_path,
             logging_setup=setup_logging,
             error_reporter_factory=error_reporter_factory,
         )
@@ -35,12 +35,12 @@ class TestEngineService:
         mock_plugins.assert_called_once_with()
 
     def test_debug_flag_overrides_ini_log_level(self, tmp_path):
-        ini_path = tmp_path / "napoleon.ini"
-        ini_path.write_text("[logging]\nlevel = error\n", encoding="utf-8")
+        config_ini_path = tmp_path / "napoleon.ini"
+        config_ini_path.write_text("[logging]\nlevel = error\n", encoding="utf-8")
 
         setup_logging = Mock()
         service = EngineService(
-            ini_path=ini_path,
+            ini_path=config_ini_path,
             debug=True,
             logging_setup=setup_logging,
             error_reporter_factory=Mock(return_value=Mock()),

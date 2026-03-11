@@ -34,13 +34,12 @@ class MainWindow(QMainWindow):
     Main application window.
     """
     
-    def __init__(self, config_manager: ConfigManager | None = None):
+    def __init__(self):
         """Initialize main window."""
         if not PYQT_AVAILABLE:
             raise ImportError("PyQt6 is required for the GUI")
         
         super().__init__()
-        self.config_manager = config_manager
         
         self.setWindowTitle("Napoleon Total War Cheat Engine")
         self.setGeometry(100, 100, 1200, 800)
@@ -336,7 +335,7 @@ def run_main_window(service):
     palette.setColor(QPalette.ColorRole.HighlightedText, QColor(255, 255, 255))
     app.setPalette(palette)
     
-    window = MainWindow(config_manager=config_manager)
+    window = MainWindow()
     window.show()
     
     sys.exit(app.exec())

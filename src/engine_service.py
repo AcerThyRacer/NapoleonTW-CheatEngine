@@ -8,7 +8,7 @@ import configparser
 import logging
 import os
 from pathlib import Path
-from typing import Any, Callable, Optional, TypeVar
+from typing import Any, Callable, TypeVar
 
 from src.config.settings import ConfigManager
 from src.utils.error_reporter import AsyncErrorReporter, init_error_reporter
@@ -26,7 +26,7 @@ class EngineService:
         ini_path: str | Path = "napoleon.ini",
         debug: bool = False,
         verbose: bool = False,
-        log_dir: Optional[Path] = None,
+        log_dir: Path | None = None,
         logging_setup: Callable[..., logging.Logger] = setup_logging,
         error_reporter_factory: Callable[..., AsyncErrorReporter] = init_error_reporter,
     ) -> None:
@@ -38,8 +38,8 @@ class EngineService:
         self._error_reporter_factory = error_reporter_factory
 
         self.logger = logging.getLogger("napoleon.engine")
-        self.error_reporter: Optional[AsyncErrorReporter] = None
-        self._config_manager: Optional[ConfigManager] = None
+        self.error_reporter: AsyncErrorReporter | None = None
+        self._config_manager: ConfigManager | None = None
         self._startup_plugin_manager: Any = None
         self._bootstrapped = False
         self._root_warning_shown = False
@@ -73,6 +73,7 @@ class EngineService:
             log_level = self.resolve_log_level()
             self._logging_setup(level=log_level, log_dir=self.log_dir)
             self.error_reporter = self._error_reporter_factory()
+            self.error_reporter.start()
             self._bootstrapped = True
 
         if load_plugins:
