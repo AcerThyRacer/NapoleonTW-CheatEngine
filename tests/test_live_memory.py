@@ -483,3 +483,363 @@ class TestModuleExports:
     def test_teleport_target_exported(self):
         from src.memory import TeleportTarget
         assert TeleportTarget is not None
+
+    def test_lua_injector_exported(self):
+        from src.memory import LuaInjector
+        assert LuaInjector is not None
+
+
+# =========================================================================
+# LuaInjector tests
+# =========================================================================
+
+class TestLuaInjector:
+    """Tests for the LuaInjector Lua 5.1 script injection manager."""
+
+    def test_import(self):
+        from src.memory.advanced import LuaInjector
+        assert LuaInjector is not None
+
+    def test_init_defaults(self):
+        from src.memory.advanced import LuaInjector
+        inj = LuaInjector()
+        assert not inj.is_ready
+        assert inj.loadbuffer_address is None
+        assert inj.pcall_address is None
+        assert inj.lua_state_address is None
+        assert inj.history == []
+
+    def test_set_editor(self):
+        from src.memory.advanced import LuaInjector
+        inj = LuaInjector()
+        editor = Mock()
+        inj.set_editor(editor)
+        assert inj.editor is editor
+        # set_editor resets resolved addresses
+        assert not inj.is_ready
+
+    def test_set_addresses(self):
+        from src.memory.advanced import LuaInjector
+        inj = LuaInjector()
+        inj.set_addresses(
+            loadbuffer=0x00401000,
+            pcall=0x00402000,
+            lua_state=0x00600000,
+        )
+        assert inj.is_ready
+        assert inj.loadbuffer_address == 0x00401000
+        assert inj.pcall_address == 0x00402000
+        assert inj.lua_state_address == 0x00600000
+
+    def test_is_ready_requires_all_three(self):
+        from src.memory.advanced import LuaInjector
+        inj = LuaInjector()
+        inj._loadbuffer_addr = 0x1000
+        assert not inj.is_ready  # missing pcall and lua_state
+
+        inj._pcall_addr = 0x2000
+        assert not inj.is_ready  # still missing lua_state
+
+        inj._lua_state_addr = 0x3000
+        assert inj.is_ready
+
+    def test_get_status_not_ready(self):
+        from src.memory.advanced import LuaInjector
+        inj = LuaInjector()
+        status = inj.get_status()
+        assert status['ready'] is False
+        assert status['loadbuffer_addr'] is None
+        assert status['pcall_addr'] is None
+        assert status['lua_state_addr'] is None
+        assert status['injections'] == 0
+
+    def test_get_status_ready(self):
+        from src.memory.advanced import LuaInjector
+        inj = LuaInjector()
+        inj.set_addresses(0x1000, 0x2000, 0x3000)
+        status = inj.get_status()
+        assert status['ready'] is True
+        assert status['loadbuffer_addr'] == '0x00001000'
+        assert status['pcall_addr'] == '0x00002000'
+        assert status['lua_state_addr'] == '0x00003000'
+
+    def test_execute_not_ready_returns_false(self):
+        from src.memory.advanced import LuaInjector
+        inj = LuaInjector()
+        result = inj.execute("print('hello')")
+        assert result is False
+
+    def test_execute_no_editor_returns_false(self):
+        from src.memory.advanced import LuaInjector
+        inj = LuaInjector()
+        inj.set_addresses(0x1000, 0x2000, 0x3000)
+        result = inj.execute("print('hello')")
+        assert result is False
+
+    def test_execute_source_too_long(self):
+        from src.memory.advanced import LuaInjector
+        editor = Mock()
+        inj = LuaInjector(editor)
+        inj.set_addresses(0x1000, 0x2000, 0x3000)
+        long_source = "x" * (LuaInjector.MAX_LUA_SOURCE_LEN + 1)
+        result = inj.execute(long_source)
+        assert result is False
+
+    def test_execute_writes_source_and_shellcode(self):
+        """Full execute path with a fake backend that provides a code cave."""
+        from src.memory.advanced import LuaInjector
+
+        # Build a fake backend with a large zero-filled "code cave"
+        cave_data = bytearray(b'\x00' * 0x4000)
+        writes = []
+
+        def fake_read(addr, size):
+            # Return zeros for any read (simulates code cave)
+            return bytes(size)
+
+        def fake_write(addr, data):
+            writes.append((addr, data))
+            return True
+
+        editor = Mock()
+        editor.read_bytes = fake_read
+        editor.write_bytes = fake_write
+        editor.get_readable_regions = Mock(return_value=[
+            {'address': 0x00700000, 'size': 0x4000},
+        ])
+
+        inj = LuaInjector(editor)
+        inj.set_addresses(
+            loadbuffer=0x00401000,
+            pcall=0x00402000,
+            lua_state=0x00600000,
+        )
+
+        result = inj.execute("print('hello')")
+        assert result is True
+        assert len(inj.history) == 1
+
+        entry = inj.history[0]
+        assert entry['source'] == "print('hello')"
+        assert entry['source_addr'] == 0x00700000  # first cave found
+        assert entry['source_size'] == len(b"print('hello')\x00")
+
+        # Verify writes: at least source + shellcode
+        assert len(writes) >= 2
+        # First write is the Lua source string
+        assert writes[0][0] == 0x00700000
+        assert b"print('hello')" in writes[0][1]
+
+    def test_execute_thread_safety(self):
+        """Concurrent execute calls are serialised."""
+        from src.memory.advanced import LuaInjector
+        import threading
+
+        call_order = []
+        entered = threading.Event()
+
+        def slow_do_execute(self_inj, source_bytes, lua_source):
+            call_order.append(('start', lua_source))
+            entered.set()  # signal that we're inside _do_execute
+            import time
+            time.sleep(0.05)
+            call_order.append(('end', lua_source))
+            return True
+
+        editor = Mock()
+        editor.get_readable_regions = Mock(return_value=[
+            {'address': 0x700000, 'size': 0x4000},
+        ])
+        editor.read_bytes = Mock(return_value=b'\x00' * 256)
+        editor.write_bytes = Mock(return_value=True)
+
+        inj = LuaInjector(editor)
+        inj.set_addresses(0x1000, 0x2000, 0x3000)
+
+        with patch.object(LuaInjector, '_do_execute', slow_do_execute):
+            t1 = threading.Thread(target=inj.execute, args=("script_a",))
+            t2 = threading.Thread(target=inj.execute, args=("script_b",))
+            t1.start()
+            entered.wait(timeout=5)  # wait until t1 holds the lock
+            entered.clear()
+            t2.start()
+            t1.join(timeout=5)
+            t2.join(timeout=5)
+
+        # Verify the calls didn't interleave
+        assert len(call_order) == 4
+        # First script should start and end before the second starts
+        assert call_order[0][0] == 'start'
+        assert call_order[1][0] == 'end'
+        assert call_order[1][1] == call_order[0][1]  # same script
+        assert call_order[2][0] == 'start'
+        assert call_order[3][0] == 'end'
+        assert call_order[3][1] == call_order[2][1]
+
+    def test_scan_lua_functions_no_editor(self):
+        from src.memory.advanced import LuaInjector
+        inj = LuaInjector()
+        result = inj.scan_lua_functions()
+        assert result is False
+
+    def test_scan_lua_functions_nothing_found(self):
+        """Scan with an editor that returns no matching patterns."""
+        from src.memory.advanced import LuaInjector
+        editor = Mock()
+        editor.read_bytes = Mock(return_value=b'\x90' * 256)
+        editor.get_readable_regions = Mock(return_value=[])
+
+        inj = LuaInjector(editor)
+        result = inj.scan_lua_functions()
+        assert result is False
+        assert not inj.is_ready
+
+    def test_build_shellcode_structure(self):
+        """Verify the shellcode builder returns valid structure."""
+        from src.memory.advanced import LuaInjector
+        raw_code, fixup_offset, chunk_name_rel = LuaInjector._build_lua_exec_shellcode(
+            lua_state_ptr_addr=0x00600000,
+            loadbuffer_addr=0x00401000,
+            pcall_addr=0x00402000,
+            source_addr=0x00700000,
+            source_len=16,
+        )
+
+        # Should return bytes
+        assert isinstance(raw_code, bytes)
+        assert len(raw_code) > 20  # non-trivial shellcode
+
+        # Fixup offset should be within the code
+        assert 0 < fixup_offset < len(raw_code)
+
+        # Chunk name starts after code, contains "inject"
+        assert raw_code[chunk_name_rel:chunk_name_rel + 6] == b'inject'
+
+        # Starts with pushad (0x60)
+        assert raw_code[0] == 0x60
+
+        # Ends with chunk-name string
+        assert raw_code[-1] == 0x00  # NUL-terminated
+        assert b'inject\x00' in raw_code
+
+        # Contains popad (0x61) and ret (0xC3) before the chunk name
+        code_part = raw_code[:chunk_name_rel]
+        assert 0x61 in code_part  # popad
+        assert 0xC3 in code_part  # ret
+
+    def test_build_shellcode_contains_addresses(self):
+        """Verify addresses are embedded in the shellcode as expected."""
+        from src.memory.advanced import LuaInjector
+        raw_code, _, _ = LuaInjector._build_lua_exec_shellcode(
+            lua_state_ptr_addr=0xAABBCCDD,
+            loadbuffer_addr=0x11223344,
+            pcall_addr=0x55667788,
+            source_addr=0xDEADBEEF,
+            source_len=42,
+        )
+        # Addresses should appear as little-endian 32-bit values
+        assert struct.pack('<I', 0xAABBCCDD) in raw_code  # lua_state_ptr
+        assert struct.pack('<I', 0x11223344) in raw_code  # loadbuffer
+        assert struct.pack('<I', 0x55667788) in raw_code  # pcall
+        assert struct.pack('<I', 0xDEADBEEF) in raw_code  # source_addr
+        assert struct.pack('<I', 42) in raw_code           # source_len
+
+    def test_cleanup(self):
+        """cleanup() zeroes out written caves."""
+        from src.memory.advanced import LuaInjector
+
+        writes = []
+
+        def fake_write(addr, data):
+            writes.append((addr, data))
+            return True
+
+        editor = Mock()
+        editor.read_bytes = Mock(return_value=b'\x00' * 256)
+        editor.write_bytes = fake_write
+        editor.get_readable_regions = Mock(return_value=[
+            {'address': 0x700000, 'size': 0x4000},
+        ])
+
+        inj = LuaInjector(editor)
+        inj.set_addresses(0x1000, 0x2000, 0x3000)
+        inj.execute("print('hi')")
+
+        writes.clear()
+        inj.cleanup()
+
+        # cleanup should have written zero-fill for both code and source
+        assert len(writes) >= 2
+        for addr, data in writes:
+            assert all(b == 0 for b in data)
+        assert inj.history == []
+
+    def test_cleanup_no_editor(self):
+        """cleanup() with no editor does not crash."""
+        from src.memory.advanced import LuaInjector
+        inj = LuaInjector()
+        inj.cleanup()  # should not raise
+
+    def test_lua_signatures_defined(self):
+        """All three expected Lua AOB signatures are defined."""
+        from src.memory.advanced import LuaInjector
+        sigs = LuaInjector.LUA_SIGNATURES
+        assert 'luaL_loadbuffer' in sigs
+        assert 'lua_pcall' in sigs
+        assert 'lua_state_global' in sigs
+        for key, pattern in sigs.items():
+            assert pattern.name
+            assert pattern.pattern
+            assert pattern.description
+
+    def test_history_returns_copy(self):
+        """history property returns a copy, not the internal list."""
+        from src.memory.advanced import LuaInjector
+        inj = LuaInjector()
+        h1 = inj.history
+        h1.append({'fake': True})
+        assert len(inj.history) == 0  # internal list unaffected
+
+    def test_max_lua_source_len(self):
+        from src.memory.advanced import LuaInjector
+        assert LuaInjector.MAX_LUA_SOURCE_LEN == 8192
+
+    def test_alloc_cave_no_editor(self):
+        from src.memory.advanced import LuaInjector
+        inj = LuaInjector()
+        assert inj._alloc_cave(100) is None
+
+    def test_alloc_cave_no_regions(self):
+        from src.memory.advanced import LuaInjector
+        editor = Mock()
+        editor.get_readable_regions = Mock(return_value=[])
+        inj = LuaInjector(editor)
+        assert inj._alloc_cave(100) is None
+
+    def test_alloc_cave_finds_zeros(self):
+        """_alloc_cave should find a run of zero bytes."""
+        from src.memory.advanced import LuaInjector
+        # Region with some non-zero bytes then a block of zeros
+        data = b'\xFF' * 50 + b'\x00' * 200 + b'\xFF' * 50
+        editor = Mock()
+        editor.get_readable_regions = Mock(return_value=[
+            {'address': 0x500000, 'size': len(data)},
+        ])
+        editor.read_bytes = Mock(return_value=data)
+        inj = LuaInjector(editor)
+        cave = inj._alloc_cave(100)
+        assert cave is not None
+        assert cave == 0x500000 + 50  # start of the zero run
+
+    def test_alloc_cave_finds_int3_padding(self):
+        """_alloc_cave should also match 0xCC (INT3) padding."""
+        from src.memory.advanced import LuaInjector
+        data = b'\xFF' * 10 + b'\xCC' * 100
+        editor = Mock()
+        editor.get_readable_regions = Mock(return_value=[
+            {'address': 0x400000, 'size': len(data)},
+        ])
+        editor.read_bytes = Mock(return_value=data)
+        inj = LuaInjector(editor)
+        cave = inj._alloc_cave(50)
+        assert cave == 0x400000 + 10

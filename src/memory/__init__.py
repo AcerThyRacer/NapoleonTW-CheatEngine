@@ -12,7 +12,14 @@ from .advanced import (
     PointerResolver, PointerChain,
     AOBScanner, AOBPattern,
     ChunkedScanner,
+from .advanced import (
+    MemoryFreezer, FrozenAddress,
+    PointerResolver, PointerChain,
+    AOBScanner, AOBPattern,
+    ChunkedScanner,
     VMTHooker, IATHooker, HookManager, HookChainEntry,
+    LuaInjector,
+)
 )
 from .signatures import SignatureDatabase, SignatureEntry, ChainEntry, PatternMetadata
 from .speedhack import SpeedhackManager
@@ -42,6 +49,9 @@ __all__ = [
     'ChunkedScanner',
     'VMTHooker',
     'IATHooker',
+    'HookManager',
+    'HookChainEntry',
+    'LuaInjector',
     'SignatureDatabase',
     'SignatureEntry',
     'ChainEntry',
