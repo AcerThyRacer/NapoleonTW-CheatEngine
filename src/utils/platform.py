@@ -555,3 +555,18 @@ def get_all_possible_process_names() -> list:
         'Napoleon Total War',     # Display name variant
         'napoleon_total_war',     # Snake case variant
     ]
+
+
+def get_linux_permission_commands(process_name: str = "napoleon.exe") -> Dict[str, str]:
+    """Get commands to fix Linux memory access permissions."""
+    if get_platform() != 'linux':
+        return {}
+
+    script_path = os.path.abspath(sys.argv[0])
+
+    return {
+        'sudo': f"sudo python3 {script_path}",
+        'pkexec': f"pkexec python3 {script_path}",
+        'setcap': f"sudo setcap cap_sys_ptrace=eip $(which python3)",
+        'ptrace_temp': "echo 0 | sudo tee /proc/sys/kernel/yama/ptrace_scope"
+    }
